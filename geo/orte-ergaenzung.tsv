@@ -1,0 +1,499 @@
+# Nachtrag zu orte.tsv - deutsche Gemeinden aus DE.txt (ADM4),
+# die in cities1000 fehlen.  Erzeugt mit 'geocode.py --gemeinden'.
+# name	lat	lon	cc	land	pop	region
+Aarbergen	50.25118	8.08905	DE	Deutschland	6210	
+Adelschlag	48.83330	11.21670	DE	Deutschland	3016	
+Ahorn	49.49119	9.53810	DE	Deutschland	2209	
+Ahorntal	49.83850	11.42284	DE	Deutschland	2180	
+Allstedt	51.40000	11.38330	DE	Deutschland	7535	
+Altertheim	49.71670	9.75000	DE	Deutschland	1972	
+Altmannstein	48.89675	11.65040	DE	Deutschland	7150	
+Altmärkische Höhe	52.83366	11.60016	DE	Deutschland	1737	
+Am Ettersberg	51.06289	11.29912	DE	Deutschland	7010	
+Am Mellensee	52.14856	13.38251	DE	Deutschland	7224	
+Ammerbuch	48.55471	8.96806	DE	Deutschland	11522	
+Amt Neuhaus	53.25000	10.93330	DE	Deutschland	4592	
+An der Poststraße	51.16697	11.62354	DE	Deutschland	1571	
+Angelburg	50.81031	8.43763	DE	Deutschland	3410	
+Anger	47.80130	12.86510	DE	Deutschland	4260	
+Apenburg-Winterfeld	52.73832	11.20401	DE	Deutschland	1652	
+Appenweier	48.53560	7.97840	DE	Deutschland	10374	
+Arendsee (Altmark)	52.86670	11.48330	DE	Deutschland	6232	
+Argenbühl	47.69789	9.94039	DE	Deutschland	6726	
+Arnsberg	51.42630	7.99130	DE	Deutschland	74879	
+Arnsdorf	51.10000	13.98330	DE	Deutschland	4960	
+Auengrund	50.46670	10.85000	DE	Deutschland	2765	
+Auetal	52.23880	9.25160	DE	Deutschland	6001	
+Aurach	49.24770	10.41550	DE	Deutschland	3104	
+Bach a.d.Donau	49.01670	12.30000	DE	Deutschland	1932	
+Bad Bertrich	50.06670	7.03333	DE	Deutschland	1020	
+Bad Bodenteich	52.83330	10.68330	DE	Deutschland	4609	
+Bad Dürkheim	49.45630	8.08140	DE	Deutschland	19159	
+Bad Essen	52.31750	8.41300	DE	Deutschland	16265	
+Bad Friedrichshall	49.24067	9.21509	DE	Deutschland	19853	
+Bad Gottleuba-Berggießhübel	50.85830	13.95000	DE	Deutschland	5367	
+Bad Grund (Harz)	51.80928	10.23952	DE	Deutschland	7738	
+Bad Grönenbach	47.87440	10.22240	DE	Deutschland	5780	
+Bad Hindelang	47.50400	10.35980	DE	Deutschland	5058	
+Bad Laasphe	50.94090	8.33020	DE	Deutschland	13148	
+Bad Münstereifel	50.53034	6.82060	DE	Deutschland	18297	
+Bad Rodach	50.34129	10.77870	DE	Deutschland	6179	
+Bad Sulza	51.08640	11.56982	DE	Deutschland	8001	
+Bad Zwesten	51.05000	9.18333	DE	Deutschland	3941	
+Barsinghausen	52.31053	9.45610	DE	Deutschland	33941	
+Baumholder	49.64890	7.39750	DE	Deutschland	4265	
+Bechhofen	49.16370	10.55490	DE	Deutschland	6365	
+Bedburg-Hau	51.76457	6.21012	DE	Deutschland	13599	
+Beetzsee	52.48330	12.56110	DE	Deutschland	2696	
+Beilngries	49.03153	11.47377	DE	Deutschland	10218	
+Benz	53.93330	14.06670	DE	Deutschland	1072	
+Berg bei Neumarkt in der Oberpfalz	49.33170	11.44030	DE	Deutschland	8048	
+Bergheim	48.76670	11.26670	DE	Deutschland	1995	
+Berglen	48.85657	9.46861	DE	Deutschland	6860	
+Berkatal	51.23797	9.91865	DE	Deutschland	1474	
+Berne	53.18180	8.48337	DE	Deutschland	7053	
+Beselich	50.46198	8.15546	DE	Deutschland	5835	
+Betzenstein	49.68330	11.41670	DE	Deutschland	2491	
+Beverstedt	53.43484	8.81827	DE	Deutschland	13354	
+Biebergemünd	50.20718	9.28070	DE	Deutschland	8240	
+Biebertal	50.64590	8.57572	DE	Deutschland	9893	
+Bismark (Altmark)	52.66670	11.56670	DE	Deutschland	7660	
+Blaichach	47.50240	10.18592	DE	Deutschland	5518	
+Blankenhagen	54.16670	12.35000	DE	Deutschland	1100	
+Bobritzsch-Hilbersdorf	50.90985	13.41225	DE	Deutschland	5647	
+Boitzenburger Land	53.25500	13.58670	DE	Deutschland	2944	
+Borchen	51.64889	8.77000	DE	Deutschland	13721	
+Brachttal	50.30512	9.29420	DE	Deutschland	4844	
+Breitenbrunn	49.08330	11.61670	DE	Deutschland	3702	
+Burgstall	52.41670	11.70000	DE	Deutschland	1480	
+Burgwald	51.01381	8.78527	DE	Deutschland	4932	
+Burgwedel	52.53524	9.89383	DE	Deutschland	20379	
+Buxheim	48.80477	11.29120	DE	Deutschland	3778	
+Böhmfeld	48.86670	11.36670	DE	Deutschland	1698	
+Bördeland	51.96459	11.70626	DE	Deutschland	7466	
+Carinerland	53.99418	11.73791	DE	Deutschland	1300	
+Dachsberg	47.71022	8.09118	DE	Deutschland	1380	
+Dautphetal	50.84507	8.55718	DE	Deutschland	11466	
+Deggenhausertal	47.78014	9.39773	DE	Deutschland	4430	
+Delbrück	51.78020	8.48400	DE	Deutschland	32166	
+Denkendorf	48.94130	11.47740	DE	Deutschland	5036	
+Dermbach	50.71670	10.13330	DE	Deutschland	6889	
+Dettmannsdorf	54.10583	12.53532	DE	Deutschland	1019	
+Diemelsee	51.34958	8.78781	DE	Deutschland	4507	
+Diemelstadt	51.47761	8.99809	DE	Deutschland	5186	
+Diepenau	52.42290	8.73333	DE	Deutschland	3824	
+Diera-Zehren	51.20000	13.42500	DE	Deutschland	3174	
+Diesdorf	52.75000	10.88330	DE	Deutschland	2101	
+Dietzhölztal	50.84534	8.29767	DE	Deutschland	5328	
+Dollnstein	48.87260	11.07445	DE	Deutschland	2878	
+Dorfchemnitz	50.76670	13.45000	DE	Deutschland	1435	
+Dornburg	50.51031	8.01979	DE	Deutschland	8506	
+Drei Gleichen	50.89570	10.80955	DE	Deutschland	7882	
+Dummerstorf	54.01670	12.23330	DE	Deutschland	7562	
+Dähre	52.80000	10.90000	DE	Deutschland	1311	
+Ebern	50.09422	10.79514	DE	Deutschland	7193	
+Ebersburg	50.45943	9.78937	DE	Deutschland	4663	
+Ebrach	49.84660	10.50120	DE	Deutschland	1843	
+Ebsdorfergrund	50.73569	8.84123	DE	Deutschland	9207	
+Edemissen	52.38330	10.26670	DE	Deutschland	12281	
+Edewecht	53.12280	8.11380	DE	Deutschland	22632	
+Egweil	48.78330	11.23330	DE	Deutschland	1250	
+Ehra-Lessien	52.57419	10.78210	DE	Deutschland	1625	
+Ehrenberg	50.50000	10.00000	DE	Deutschland	2519	
+Ehrenkirchen	47.90618	7.76004	DE	Deutschland	7813	
+Elbe-Parey	52.38330	12.01670	DE	Deutschland	6362	
+Elsteraue	51.07146	12.22370	DE	Deutschland	7765	
+Elsterheide	51.50000	14.16670	DE	Deutschland	3269	
+Elztal	49.40114	9.20950	DE	Deutschland	5814	
+Emmerthal	52.05027	9.39159	DE	Deutschland	9834	
+Engstingen	48.38824	9.29345	DE	Deutschland	5041	
+Ense	51.50105	7.96710	DE	Deutschland	12383	
+Erxleben	52.21670	11.25000	DE	Deutschland	2664	
+Eschenbach i.d.OPf.	49.75250	11.82660	DE	Deutschland	4308	
+Eschenburg	50.81057	8.36805	DE	Deutschland	9795	
+Eschenlohe	47.60000	11.18330	DE	Deutschland	1556	
+Eutingen im Gäu	48.47799	8.75018	DE	Deutschland	6120	
+Extertal	52.09143	9.09891	DE	Deutschland	11248	
+Falkenstein/Harz	51.73333	11.31665	DE	Deutschland	4924	
+Feldatal	50.63665	9.18312	DE	Deutschland	2178	
+Feldberg	47.86339	8.06452	DE	Deutschland	1956	
+Feldberger Seenlandschaft	53.33910	13.41880	DE	Deutschland	4315	
+Felixsee	51.60830	14.52080	DE	Deutschland	1793	
+Fernwald	50.56373	8.77867	DE	Deutschland	7109	
+Fichtenau	49.07024	10.20968	DE	Deutschland	4588	
+Finneland	51.20521	11.50676	DE	Deutschland	1007	
+Finnentrop	51.17310	7.97250	DE	Deutschland	17022	
+Fischen i.Allgäu	47.46095	10.27165	DE	Deutschland	3156	
+Floh-Seligenthal	50.76000	10.48670	DE	Deutschland	5566	
+Flörsbachtal	50.12080	9.43750	DE	Deutschland	2274	
+Frankenhardt	49.07363	10.00025	DE	Deutschland	5026	
+Fredenbeck	53.52360	9.40350	DE	Deutschland	6475	
+Freiamt	48.17128	7.91786	DE	Deutschland	4243	
+Freigericht	50.13553	9.13649	DE	Deutschland	14165	
+Galenbeck	53.64744	13.67418	DE	Deutschland	1090	
+Ganzlin	53.38328	12.25149	DE	Deutschland	1374	
+Gemünden (Felda)	50.70000	9.05000	DE	Deutschland	2646	
+Gerabronn	49.25110	9.92139	DE	Deutschland	4451	
+Geratal	50.74228	10.81372	DE	Deutschland	8504	
+Gerbstedt	51.63330	11.61670	DE	Deutschland	6601	
+Gerstungen	50.96670	10.06670	DE	Deutschland	8884	
+Gesees	49.90000	11.53330	DE	Deutschland	1251	
+Gleichen	51.47369	10.06619	DE	Deutschland	8663	
+Gleina	51.26670	11.73330	DE	Deutschland	1140	
+Glottertal	48.04198	7.96220	DE	Deutschland	3225	
+Gosen-Neu Zittau	52.36670	13.75000	DE	Deutschland	3226	
+Grabfeld	50.44832	10.43255	DE	Deutschland	5425	
+Grafenhausen	47.76670	8.26667	DE	Deutschland	2271	
+Grafling	48.90000	12.98330	DE	Deutschland	2707	
+Grammetal	50.95065	11.23004	DE	Deutschland	6437	
+Grasellenbach	49.62889	8.85781	DE	Deutschland	3982	
+Groß Plasten	53.55000	12.85000	DE	Deutschland	1043	
+Großmehring	48.76670	11.53330	DE	Deutschland	7576	
+Gräfenthal	50.53330	11.30000	DE	Deutschland	1806	
+Gröditz	51.41933	13.40605	DE	Deutschland	6752	
+Grünheide (Mark)	52.41110	13.88890	DE	Deutschland	8978	
+Gusow-Platkow	52.57770	14.34000	DE	Deutschland	1307	
+Gutenborn	50.99836	12.12470	DE	Deutschland	1724	
+Gutow	53.75588	12.12387	DE	Deutschland	1021	
+Gülzow-Prüzen	53.81670	12.06670	DE	Deutschland	1517	
+Gützkow	53.95000	13.41670	DE	Deutschland	3034	
+Habichtswald	51.32793	9.33371	DE	Deutschland	5168	
+Hagen im Bremischen	53.35595	8.64405	DE	Deutschland	10705	
+Harth-Pöllnitz	50.77016	11.98104	DE	Deutschland	2622	
+Harztor	51.55541	10.76712	DE	Deutschland	7306	
+Haselbachtal	51.23828	14.03744	DE	Deutschland	3882	
+Hauneck	50.81868	9.72787	DE	Deutschland	3070	
+Haunetal	50.76441	9.67530	DE	Deutschland	2795	
+Hausen b.Würzburg	49.93330	10.01670	DE	Deutschland	2520	
+Havelsee	52.49290	12.46670	DE	Deutschland	3181	
+Heideblick	51.81270	13.65510	DE	Deutschland	3514	
+Heidesee	52.27500	13.76457	DE	Deutschland	7407	
+Helbedündorf	51.35000	10.61670	DE	Deutschland	2113	
+Hemau	49.03830	11.85220	DE	Deutschland	9408	
+Henstedt-Ulzburg Municipality	53.78330	10.00000	DE	Deutschland	28325	
+Hepberg	48.81780	11.46110	DE	Deutschland	3020	
+Herrnhut	51.01670	14.75000	DE	Deutschland	5695	
+Herschbach	50.58330	7.73333	DE	Deutschland	3018	
+Herxheim bei Landau/ Pfalz	49.14140	8.22150	DE	Deutschland	11093	
+Herzebrock-Clarholz	51.90000	8.21667	DE	Deutschland	16419	
+Hitzhofen	48.85000	11.31670	DE	Deutschland	3017	
+Hohe Börde	52.13960	11.44374	DE	Deutschland	18747	
+Hohenahr	50.66473	8.49438	DE	Deutschland	4874	
+Hohenberg-Krusemark	52.73330	11.96670	DE	Deutschland	1128	
+Hohendubrau	51.24440	14.67130	DE	Deutschland	1837	
+Hohenstein	48.34030	9.35987	DE	Deutschland	3788	
+Hohenstein	50.19399	8.09675	DE	Deutschland	5829	
+Hohenstein	51.53876	10.57291	DE	Deutschland	2012	
+Hohenwart	48.60000	11.38330	DE	Deutschland	4903	
+Hollern-Twielenfleth	53.60000	9.55000	DE	Deutschland	3269	
+Holste	53.37228	8.85622	DE	Deutschland	1398	
+Holzheim	48.62080	10.96670	DE	Deutschland	1141	
+Hopsten	52.37610	7.60590	DE	Deutschland	7717	
+Horb am Neckar	48.48890	8.67340	DE	Deutschland	25651	
+Horka	51.30000	14.90000	DE	Deutschland	1562	
+Horn-Bad Meinberg	51.87352	8.94768	DE	Deutschland	17320	
+Hungen	50.47308	8.89961	DE	Deutschland	12754	
+Huy	51.99835	11.02151	DE	Deutschland	6578	
+Höhenland	52.71138	13.92216	DE	Deutschland	1053	
+Hörselberg-Hainich	51.00771	10.46722	DE	Deutschland	5979	
+Hünfelden	50.31529	8.15037	DE	Deutschland	9818	
+Hünstetten	50.24121	8.18658	DE	Deutschland	10380	
+Hünxe	51.65000	6.78333	DE	Deutschland	13611	
+Hürtgenwald	50.71670	6.36667	DE	Deutschland	9196	
+Hüttenberg	50.50957	8.56985	DE	Deutschland	10550	
+Igling	48.06673	10.80525	DE	Deutschland	2531	
+Ihlow	53.41020	7.40293	DE	Deutschland	12376	
+Ilmtal-Weinstraße	51.05188	11.45584	DE	Deutschland	6169	
+Insel Poel	53.99318	11.40364	DE	Deutschland	2507	
+Issum	51.54500	6.44760	DE	Deutschland	12428	
+Jerichow	52.50000	12.03330	DE	Deutschland	6571	
+Jossgrund	50.16267	9.45784	DE	Deutschland	3407	
+Jübar	52.70000	10.91670	DE	Deutschland	1508	
+Kabelsketal	51.43250	12.08822	DE	Deutschland	8859	
+Kalbach	50.40262	9.68084	DE	Deutschland	6477	
+Kalbe (Milde)	52.65000	11.40000	DE	Deutschland	6976	
+Kalletal	52.10714	8.94854	DE	Deutschland	13256	
+Kamern	52.75000	12.11670	DE	Deutschland	1162	
+Karlsbad	48.90617	8.50412	DE	Deutschland	16049	
+Keltern	48.89896	8.57662	DE	Deutschland	8693	
+Kemberg	51.80014	12.59708	DE	Deutschland	9217	
+Kerken	51.44729	6.38895	DE	Deutschland	13186	
+Kinding	49.00000	11.38330	DE	Deutschland	2549	
+Kipfenberg	48.95330	11.39730	DE	Deutschland	5767	
+Klingenberg	50.90920	13.58374	DE	Deutschland	6588	
+Kloster Lehnin	52.32065	12.74586	DE	Deutschland	11261	
+Knüllwald	50.98996	9.51590	DE	Deutschland	4443	
+Konnersreuth	50.01670	12.23330	DE	Deutschland	1742	
+Kranenburg	51.78330	6.01667	DE	Deutschland	11303	
+Kreßberg	49.13333	10.18333	DE	Deutschland	4008	
+Krummhörn	53.43970	7.09117	DE	Deutschland	11384	
+Kröning	48.53184	12.36855	DE	Deutschland	2052	
+Kuhfelde	52.78330	11.11670	DE	Deutschland	1023	
+Kyffhäuserland	51.35538	11.00538	DE	Deutschland	3810	
+Kyritz	52.98080	12.32740	DE	Deutschland	9147	
+Käbschütztal	51.14840	13.39010	DE	Deutschland	2783	
+Königsberg i.Bay.	50.08162	10.56975	DE	Deutschland	3543	
+Königsmoos	48.64290	11.18817	DE	Deutschland	4938	
+Kösching	48.81670	11.50000	DE	Deutschland	9788	
+Küstriner Vorland	52.56240	14.57280	DE	Deutschland	2487	
+Laaber	49.06670	11.88330	DE	Deutschland	5290	
+Laar	52.61670	6.73333	DE	Deutschland	2050	
+Landsberg	51.52750	12.10140	DE	Deutschland	14772	
+Langdorf	49.01670	13.15000	DE	Deutschland	1836	
+Lauta	51.44189	14.08078	DE	Deutschland	7726	
+Lauterstein	48.70994	9.87190	DE	Deutschland	2558	
+Leiferde	52.43330	10.43330	DE	Deutschland	4231	
+Lemgow	52.91407	11.31305	DE	Deutschland	1293	
+Lewitzrand	53.47908	11.68100	DE	Deutschland	1381	
+Lichtenfels	51.16982	8.78527	DE	Deutschland	4051	
+Liebschützberg	51.33330	13.15880	DE	Deutschland	2844	
+Limbach	49.46190	9.21111	DE	Deutschland	4513	
+Lindendorf	52.48990	14.42850	DE	Deutschland	1362	
+Lindern (Oldenburg)	52.85000	7.78333	DE	Deutschland	4968	
+Lippetal	51.66663	8.08733	DE	Deutschland	11883	
+Loitz	53.96670	13.13330	DE	Deutschland	4189	
+Ludwigsau	50.92467	9.69565	DE	Deutschland	5375	
+Lunow-Stolzenhagen	52.93330	14.10830	DE	Deutschland	1143	
+Löcknitz	53.46488	14.21074	DE	Deutschland	3280	
+Löwenberger Land	52.89580	13.17290	DE	Deutschland	8508	
+Lüdersdorf	53.83330	10.81670	DE	Deutschland	5159	
+Lützelbach	49.78830	9.07528	DE	Deutschland	6755	
+Lützen	51.23170	12.11060	DE	Deutschland	8242	
+Mandelbachtal	49.18725	7.15035	DE	Deutschland	10844	
+Marienmünster	51.82271	9.22787	DE	Deutschland	4791	
+Markt Eckental	49.58407	11.21748	DE	Deutschland	14476	
+Marne	53.94680	9.01420	DE	Deutschland	5586	
+Marxzell	48.85275	8.44646	DE	Deutschland	5040	
+Mechernich	50.63990	6.70420	DE	Deutschland	29187	
+Medelby	54.81670	9.18333	DE	Deutschland	1053	
+Meine	52.37691	10.57033	DE	Deutschland	8286	
+Meißner	51.19897	9.92035	DE	Deutschland	2915	
+Mettlach	49.50000	6.60000	DE	Deutschland	12621	
+Meyenburg	53.31670	12.23330	DE	Deutschland	2061	
+Mindelstetten	48.85120	11.64390	DE	Deutschland	1823	
+Mirow	53.26670	12.81670	DE	Deutschland	3711	
+Moormerland	53.31970	7.42273	DE	Deutschland	23365	
+Mossautal	49.64718	8.91581	DE	Deutschland	2415	
+Muldestausee	51.63888	12.49443	DE	Deutschland	11540	
+Märkisch Linden	52.92920	12.70830	DE	Deutschland	1207	
+Märkisch Luch	52.58750	12.61670	DE	Deutschland	1372	
+Märkische Heide	52.04684	14.01247	DE	Deutschland	3757	
+Möckern	52.21120	11.96910	DE	Deutschland	12591	
+Möser	52.21670	11.80000	DE	Deutschland	8386	
+Mücke	50.62647	9.04491	DE	Deutschland	9267	
+Mühlenbecker Land	52.67363	13.36159	DE	Deutschland	15177	
+Mühlental	50.37894	12.25689	DE	Deutschland	1165	
+Mühlhausen	49.16670	11.45000	DE	Deutschland	5251	
+Nassenfels	48.79794	11.22870	DE	Deutschland	2348	
+Neetze	53.26520	10.62134	DE	Deutschland	2831	
+Neiße-Malxetal	51.64330	14.63000	DE	Deutschland	1530	
+Neißeaue	51.25887	14.98740	DE	Deutschland	1603	
+Neißemünde	52.05000	14.73330	DE	Deutschland	1587	
+Nessetal	51.00794	10.65524	DE	Deutschland	7938	
+Neuburg	53.95000	11.60000	DE	Deutschland	2166	
+Neuburg a.d.Kammel	48.30000	10.36670	DE	Deutschland	3260	
+Neuenkirchen	52.41670	7.85000	DE	Deutschland	4640	
+Neuenkirchen-Vörden	52.51670	8.06667	DE	Deutschland	8858	
+Neuenstein	50.91365	9.56762	DE	Deutschland	2981	
+Neuerburg	50.01670	6.30000	DE	Deutschland	1344	
+Neuhausen ob Eck	47.96670	8.93333	DE	Deutschland	4206	
+Neuhausen/Spree	51.68330	14.41670	DE	Deutschland	4814	
+Neunkirchen	49.70720	9.40250	DE	Deutschland	1428	
+Neunkirchen-Seelscheid	50.86670	7.32500	DE	Deutschland	20283	
+Neuried	48.45219	7.80748	DE	Deutschland	9919	
+Neustadt (Wied)	50.61670	7.43333	DE	Deutschland	6526	
+Niedere Börde	52.23898	11.53214	DE	Deutschland	6726	
+Niederer Fläming	51.90250	13.20920	DE	Deutschland	3021	
+Niemetal	51.51354	9.69226	DE	Deutschland	1420	
+Nordstrand	54.48683	8.89642	DE	Deutschland	2326	
+Nordwestuckermark	53.32676	13.69245	DE	Deutschland	4097	
+Nottertal-Heilinger Höhen	51.18623	10.68200	DE	Deutschland	5750	
+Nuthetal	52.30610	13.11267	DE	Deutschland	9376	
+Nüsttal	50.65106	9.85975	DE	Deutschland	2850	
+Oberaurach	49.92710	10.63330	DE	Deutschland	4053	
+Oberdolling	48.83330	11.58330	DE	Deutschland	1360	
+Oberharz am Brocken	51.76670	10.80000	DE	Deutschland	9547	
+Oberkrämer	52.69844	13.10257	DE	Deutschland	12145	
+Oberroth	48.16670	10.18330	DE	Deutschland	1005	
+Obersulm	49.13298	9.39061	DE	Deutschland	13756	
+Oberuckersee	53.21250	13.88750	DE	Deutschland	1589	
+Oderaue	52.77730	14.20420	DE	Deutschland	1560	
+Ohrdruf	50.81670	10.73330	DE	Deutschland	9991	
+Oranienbaum-Wörlitz	51.79988	12.40082	DE	Deutschland	7998	
+Osterode am Harz	51.73180	10.23990	DE	Deutschland	21598	
+Osterwieck	51.96670	10.71670	DE	Deutschland	11045	
+Perl	49.46670	6.38333	DE	Deutschland	9503	
+Petersberg	51.59637	11.95304	DE	Deutschland	9329	
+Pettendorf	49.06670	12.00000	DE	Deutschland	3438	
+Pfinztal	48.98619	8.54462	DE	Deutschland	18178	
+Pförring	48.81670	11.68330	DE	Deutschland	4150	
+Plech	49.66690	11.46440	DE	Deutschland	1350	
+Pohlheim	50.52909	8.72469	DE	Deutschland	17677	
+Pollenfeld	48.95000	11.20000	DE	Deutschland	3056	
+Pöhl	50.55000	12.18330	DE	Deutschland	2367	
+Raguhn-Jeßnitz	51.72381	12.24761	DE	Deutschland	8702	
+Rauhenebrach	49.89414	10.57512	DE	Deutschland	2744	
+Ravenstein	49.40000	9.50000	DE	Deutschland	2999	
+Rees	51.80970	6.40040	DE	Deutschland	21913	
+Reichertshausen	48.46667	11.51667	DE	Deutschland	5188	
+Reichshof	50.95367	7.68762	DE	Deutschland	18688	
+Reinhardshagen	51.49499	9.60399	DE	Deutschland	4291	
+Reken	51.82378	7.06641	DE	Deutschland	15109	
+Rerik	54.10536	11.61276	DE	Deutschland	2166	
+Rhönblick	50.55489	10.28629	DE	Deutschland	2588	
+Ried	48.28976	11.04276	DE	Deutschland	3234	
+Riedbach	50.10358	10.44030	DE	Deutschland	1729	
+Ringgau	51.08704	10.08145	DE	Deutschland	2830	
+Rodewald	52.66383	9.48295	DE	Deutschland	2582	
+Rommerskirchen	51.03050	6.70110	DE	Deutschland	14079	
+Rosenbach/Vogtl.	50.53089	12.03501	DE	Deutschland	3927	
+Rosendahl	52.01670	7.21667	DE	Deutschland	11249	
+Rosengarten	53.41043	9.88807	DE	Deutschland	14033	
+Rosenthal-Bielatal	50.86670	14.05000	DE	Deutschland	1521	
+Rottach-Egern	47.65180	11.82538	DE	Deutschland	5441	
+Roßhaupten	47.65000	10.71670	DE	Deutschland	2272	
+Ruhner Berge	53.32809	11.92445	DE	Deutschland	1723	
+Römerstein	48.49662	9.51008	DE	Deutschland	4094	
+Römhild	50.40700	10.53690	DE	Deutschland	6383	
+Rüdersdorf bei Berlin	52.47070	13.77360	DE	Deutschland	15889	
+Saalburg-Ebersdorf	50.49170	11.70000	DE	Deutschland	3271	
+Sachsenheim	49.00410	9.01159	DE	Deutschland	18638	
+Salzatal	51.56833	11.81499	DE	Deutschland	11267	
+Sanitz	54.07750	12.36610	DE	Deutschland	6533	
+Saterland	53.10330	7.68250	DE	Deutschland	14378	
+Satow	53.98911	11.89195	DE	Deutschland	6336	
+Sauerlach	47.95860	11.56740	DE	Deutschland	8063	
+Schafstedt	54.08330	9.30000	DE	Deutschland	1290	
+Schauenburg	51.28259	9.32878	DE	Deutschland	10352	
+Schefflenz	49.40447	9.29041	DE	Deutschland	3933	
+Schemmerhofen	48.17353	9.79156	DE	Deutschland	8807	
+Schenkendöbern	51.95805	14.54538	DE	Deutschland	3401	
+Schernfeld	48.90000	11.10000	DE	Deutschland	3291	
+Schkopau	51.40000	12.04629	DE	Deutschland	10815	
+Schlaubetal	52.12890	14.51110	DE	Deutschland	1800	
+Schleusegrund	50.52330	10.86670	DE	Deutschland	2528	
+Schloß Holte-Stukenbrock	51.90000	8.61667	DE	Deutschland	26297	
+Schollene	52.68330	12.21670	DE	Deutschland	1058	
+Schorfheide	52.89919	13.59465	DE	Deutschland	10632	
+Schwalmtal	50.68330	9.30000	DE	Deutschland	2750	
+Schwarzach b.Nabburg	49.41064	12.22864	DE	Deutschland	1356	
+Schwarzenbach a.Wald	50.28330	11.61670	DE	Deutschland	4231	
+Schwielochsee	51.99720	14.11191	DE	Deutschland	1481	
+Schönau a.d.Brend	50.38330	10.10000	DE	Deutschland	1196	
+Schönberg	48.33330	12.43330	DE	Deutschland	1131	
+Schönberg	48.83330	13.33330	DE	Deutschland	3925	
+Schönberg	53.85000	10.93330	DE	Deutschland	4321	
+Schönberg (Holstein)	54.39050	10.37750	DE	Deutschland	6206	
+Schönewalde	51.80046	13.23859	DE	Deutschland	2899	
+Schöntal	49.34496	9.53390	DE	Deutschland	5557	
+Schönwald	51.98530	13.72300	DE	Deutschland	1226	
+Schönwalde-Glien	52.61670	13.13330	DE	Deutschland	10523	
+Schönwölkau	51.51670	12.48330	DE	Deutschland	2676	
+Seegebiet Mansfelder Land	51.47221	11.67474	DE	Deutschland	8474	
+Seeland	51.81670	11.35000	DE	Deutschland	7553	
+Seewald	48.57993	8.46170	DE	Deutschland	2111	
+Selfkant	51.01667	5.91667	DE	Deutschland	10786	
+Selters (Taunus)	50.35000	8.23333	DE	Deutschland	8158	
+Siegbach	50.74952	8.41807	DE	Deutschland	2488	
+Simmerath	50.60683	6.30047	DE	Deutschland	16612	
+Simonswald	48.10491	8.06328	DE	Deutschland	2936	
+Sinntal	50.30003	9.64777	DE	Deutschland	8680	
+Sonnenbühl	48.38333	9.18333	DE	Deutschland	7022	
+Sonnenstein	51.55744	10.40989	DE	Deutschland	4215	
+Spahnharrenstätte	52.87077	7.60479	DE	Deutschland	1528	
+Spreetal	51.51670	14.36670	DE	Deutschland	1702	
+Spremberg	51.56971	14.37355	DE	Deutschland	21140	
+Stadt An der Schmücke	51.29742	11.21158	DE	Deutschland	5881	
+Stadt Buttstädt	51.13328	11.37671	DE	Deutschland	6470	
+Stadt Dingelstädt	51.31977	10.30209	DE	Deutschland	12204	
+Stadt Heldburg	50.27205	10.69499	DE	Deutschland	3261	
+Stadt Kaltennordheim	50.61985	10.14635	DE	Deutschland	5562	
+Stadt Schwarzatal	50.58619	11.11198	DE	Deutschland	3319	
+Stammham	48.85000	11.46670	DE	Deutschland	4142	
+Starzach	48.43168	8.81112	DE	Deutschland	4373	
+Staufenberg	51.34396	9.64817	DE	Deutschland	7506	
+Stavenhagen	53.70000	12.90000	DE	Deutschland	4855	
+Stechlin	53.10560	13.04170	DE	Deutschland	1123	
+Steffenberg	50.83335	8.42102	DE	Deutschland	3830	
+Steinbergkirche	54.77190	9.75450	DE	Deutschland	2978	
+Steinburg	53.70479	10.40069	DE	Deutschland	2758	
+Steinhausen an der Rottum	48.01670	9.96667	DE	Deutschland	2182	
+Stemwede	52.41041	8.41642	DE	Deutschland	13460	
+Straubenhardt	48.84385	8.52192	DE	Deutschland	11367	
+Straufhain	50.35830	10.70420	DE	Deutschland	2677	
+Striegistal	50.99170	13.18610	DE	Deutschland	4570	
+Stutensee	49.09016	8.47529	DE	Deutschland	25259	
+Sulzbach-Laufen	48.96488	9.84564	DE	Deutschland	2560	
+Sulzdorf a.d.Lederhecke	50.23990	10.56200	DE	Deutschland	1142	
+Sundhagen	54.18838	13.20450	DE	Deutschland	5096	
+Swisttal	50.68846	6.92156	DE	Deutschland	18580	
+Sydower Fließ	52.73059	13.71744	DE	Deutschland	1013	
+Söhrewald	51.22143	9.57822	DE	Deutschland	4521	
+Südbrookmerland	53.47550	7.35163	DE	Deutschland	18368	
+Südeichsfeld	51.16632	10.32286	DE	Deutschland	6419	
+Süderholz	54.07620	13.13330	DE	Deutschland	3911	
+Südharz	51.49707	11.08061	DE	Deutschland	8829	
+Südliches Anhalt	51.70476	12.03827	DE	Deutschland	12857	
+Sülzetal	52.01670	11.55000	DE	Deutschland	8577	
+Taufkirchen (Vils)	48.33740	12.19740	DE	Deutschland	10652	
+Teichland	51.81053	14.42471	DE	Deutschland	1061	
+Temnitztal	52.85670	12.63670	DE	Deutschland	1465	
+Teuchern	51.11670	12.01670	DE	Deutschland	7712	
+Tiefenbach	48.61670	13.40000	DE	Deutschland	6650	
+Titting	49.00000	11.21670	DE	Deutschland	2718	
+Tonna	51.07500	10.73330	DE	Deutschland	2769	
+Twistetal	51.32583	8.95231	DE	Deutschland	4219	
+Uckerland	53.45690	13.78060	DE	Deutschland	2412	
+Uetze	52.47133	10.15810	DE	Deutschland	20064	
+Uhlstädt-Kirchhasel	50.75910	11.43180	DE	Deutschland	5320	
+Undeloh	53.19711	9.97574	DE	Deutschland	1019	
+Unstrut-Hainich	51.12498	10.51115	DE	Deutschland	6378	
+Unstruttal	51.26390	10.44720	DE	Deutschland	5993	
+Upahl	53.81670	11.21670	DE	Deutschland	1842	
+Uplengen	53.28333	7.75000	DE	Deutschland	11930	
+Vellahn	53.40000	10.96670	DE	Deutschland	2731	
+Vielank	53.23330	11.13330	DE	Deutschland	1271	
+Vierkirchen	51.19290	14.74760	DE	Deutschland	1607	
+Vierlinden	52.51500	14.31410	DE	Deutschland	1442	
+Vlotho	52.13880	8.78060	DE	Deutschland	18335	
+Wadersloh	51.75170	8.23290	DE	Deutschland	12848	
+Waldbronn	48.92814	8.47698	DE	Deutschland	13838	
+Waldbrunn	49.45434	9.07873	DE	Deutschland	4670	
+Waldhufen	51.23330	14.79170	DE	Deutschland	2329	
+Waldsolms	50.43071	8.49099	DE	Deutschland	4660	
+Walting	48.91670	11.30000	DE	Deutschland	2317	
+Wangerland	53.62921	7.92946	DE	Deutschland	9149	
+Wanzleben-Börde	52.06032	11.41467	DE	Deutschland	13724	
+Wedemark	52.55911	9.70537	DE	Deutschland	29803	
+Wehretal	51.14646	9.99507	DE	Deutschland	4883	
+Weidenberg	49.94120	11.72270	DE	Deutschland	5864	
+Weilrod	50.32801	8.39542	DE	Deutschland	6856	
+Weimar (Lahn)	50.76178	8.73207	DE	Deutschland	7240	
+Wellheim	48.81893	11.09963	DE	Deutschland	2716	
+Welver	51.61825	7.95650	DE	Deutschland	11999	
+Wesertal	51.59275	9.59743	DE	Deutschland	4713	
+Westheide	52.38700	11.49700	DE	Deutschland	1657	
+Westoverledingen	53.15000	7.46667	DE	Deutschland	21127	
+Wettin-Löbejün	51.63403	11.90206	DE	Deutschland	9554	
+Weyhe	52.98482	8.84811	DE	Deutschland	30975	
+Wiedemar	51.46670	12.20000	DE	Deutschland	5544	
+Wiesengrund	51.69670	14.55330	DE	Deutschland	1338	
+Wiesenttal	49.80370	11.25955	DE	Deutschland	2539	
+Wildeck	50.95011	9.97716	DE	Deutschland	4701	
+Windeck	50.79336	7.57266	DE	Deutschland	19555	
+Wittendörp	53.56285	11.02461	DE	Deutschland	2876	
+Wittibreut	48.33330	12.98330	DE	Deutschland	1940	
+Wohratal	50.93351	8.92814	DE	Deutschland	2142	
+Wolsfeld	49.90000	6.46667	DE	Deutschland	1074	
+Wrestedt	52.90000	10.58330	DE	Deutschland	6130	
+Wurster Nordseeküste	53.78681	8.61305	DE	Deutschland	16769	
+Wurzen	51.34138	12.79851	DE	Deutschland	16238	
+Wust-Fischbeck	52.54654	12.10026	DE	Deutschland	1154	
+Wustrow	54.35000	12.40000	DE	Deutschland	1134	
+Wutach	47.82928	8.42790	DE	Deutschland	1192	
+Wutha-Farnroda	50.95330	10.39170	DE	Deutschland	6268	
+Wöllstadt	50.28222	8.76086	DE	Deutschland	6593	
+Zahna-Elster	51.88656	12.80766	DE	Deutschland	8984	
+Zell am Harmersbach	48.35000	8.06667	DE	Deutschland	8129	
+Zeschdorf	52.42818	14.44118	DE	Deutschland	1248	
+Zörbig	51.62490	12.13980	DE	Deutschland	8899	

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fotoserver — Papierkorb</title>
+<style>
+  :root {
+    --bg:#111214; --feld:#1b1d20; --rand:#2c2f34;
+    --text:#e8e8e8; --leise:#8b9096; --akzent:#6ea8fe; --gut:#5fbf7f; --warn:#e0705a;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--bg); color:var(--text);
+    font:15px/1.55 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    padding:2.5rem 1.5rem 6rem;
+  }
+  .huelle { max-width:64rem; margin:0 auto; }
+  header { display:flex; align-items:baseline; justify-content:space-between;
+           gap:1rem; margin-bottom:1.2rem; flex-wrap:wrap; }
+  h1 { font-size:1.5rem; font-weight:400; }
+  a { color:var(--akzent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .hinweis { color:var(--leise); font-size:.88rem; }
+
+  .balken {
+    position:sticky; top:0; z-index:10; background:rgba(17,18,20,.94);
+    backdrop-filter:blur(10px); border:1px solid var(--rand); border-radius:10px;
+    padding:.85rem 1rem; margin:1.2rem 0 1.4rem;
+    display:flex; align-items:center; gap:.7rem; flex-wrap:wrap;
+  }
+  button {
+    background:#2a2f36; color:var(--text); border:1px solid var(--rand);
+    border-radius:6px; padding:.5rem 1rem; font:inherit; cursor:pointer;
+  }
+  button:hover:not(:disabled) { background:#333941; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.gefahr { border-color:#6d3a33; color:var(--warn); background:#241a18; }
+  button.gefahr:hover:not(:disabled) { background:#33221f; }
+  .balken .rechts { margin-left:auto; color:var(--leise); font-size:.88rem; }
+
+  .gitter { display:grid; grid-template-columns:repeat(auto-fill,minmax(11rem,1fr));
+            gap:1rem; }
+  figure {
+    background:var(--feld); border:1px solid var(--rand); border-radius:10px;
+    overflow:hidden; position:relative; cursor:pointer;
+  }
+  figure.gewaehlt { border-color:var(--akzent); box-shadow:0 0 0 2px rgba(110,168,254,.35); }
+  figure img { width:100%; height:8rem; object-fit:cover; display:block;
+               background:#000; opacity:.5; transition:opacity .2s; }
+  figure.gewaehlt img { opacity:.95; }
+  figure figcaption { padding:.5rem .65rem; font-size:.76rem; color:var(--leise);
+                      word-break:break-all; }
+  .haken {
+    position:absolute; top:.5rem; left:.5rem; width:1.4rem; height:1.4rem;
+    border-radius:50%; border:2px solid rgba(255,255,255,.7);
+    background:rgba(0,0,0,.45); display:flex; align-items:center;
+    justify-content:center; font-size:.9rem; color:transparent;
+  }
+  figure.gewaehlt .haken { background:var(--akzent); border-color:var(--akzent);
+                           color:#0c1116; }
+  .leer { color:var(--leise); text-align:center; padding:4rem 1rem; }
+  .melder { font-size:.9rem; }
+  .melder.gut { color:var(--gut); }
+  .melder.schlecht { color:var(--warn); }
+</style>
+</head>
+<body>
+<div class="huelle">
+
+  <header>
+    <h1>Papierkorb</h1>
+    <nav><a href="/einstellungen">← Einstellungen</a> &nbsp; <a href="/">Slideshow</a></nav>
+  </header>
+
+  <p class="hinweis">
+    Diese Bilder sind aus der Anzeige genommen. Sie bleiben auch dann draußen,
+    wenn ein späterer Takeout dieselbe Datei noch einmal liefert — erkannt wird
+    das an der Prüfsumme. <b>Die Originaldateien werden nie angefasst.</b>
+  </p>
+
+  <div class="balken">
+    <button id="alleAn">Alle wählen</button>
+    <button id="alleAus">Auswahl aufheben</button>
+    <button id="bZurueck" disabled>Wiederherstellen</button>
+    <button class="gefahr" id="bEndgueltig" disabled>Endgültig entfernen</button>
+    <span class="melder" id="melder"></span>
+    <span class="rechts" id="stand"></span>
+  </div>
+
+  <div class="gitter" id="gitter"></div>
+  <div class="leer" id="leer" hidden>Der Papierkorb ist leer.</div>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  let bilder = [], gewaehlt = new Set();
+
+  function mb(b) { return (b / 1048576).toFixed(1).replace(".", ",") + " MB"; }
+
+  function zeichne() {
+    const g = $("gitter");
+    g.innerHTML = "";
+    $("leer").hidden = bilder.length > 0;
+    for (const b of bilder) {
+      const f = document.createElement("figure");
+      f.className = gewaehlt.has(b.sha256) ? "gewaehlt" : "";
+      if (b.im_bestand) {
+        const img = document.createElement("img");
+        img.src = "/vorschau/" + b.photo_id;
+        img.loading = "lazy"; img.alt = "";
+        f.appendChild(img);
+      }
+      const h = document.createElement("div");
+      h.className = "haken"; h.textContent = "✓";
+      f.appendChild(h);
+      const c = document.createElement("figcaption");
+      c.textContent = (b.filename || b.sha256.slice(0, 12)) + " · " + b.geloescht_at;
+      f.appendChild(c);
+      f.onclick = () => {
+        gewaehlt.has(b.sha256) ? gewaehlt.delete(b.sha256) : gewaehlt.add(b.sha256);
+        zeichne();
+      };
+      g.appendChild(f);
+    }
+    const n = gewaehlt.size;
+    $("bZurueck").disabled = !n;
+    $("bEndgueltig").disabled = !n;
+    $("bZurueck").textContent = n ? `Wiederherstellen (${n})` : "Wiederherstellen";
+    $("bEndgueltig").textContent = n ? `Endgültig entfernen (${n})` : "Endgültig entfernen";
+  }
+
+  function lade() {
+    fetch("/api/geloescht").then(r => r.json()).then(d => {
+      bilder = d.bilder;
+      gewaehlt = new Set([...gewaehlt].filter(s => bilder.some(b => b.sha256 === s)));
+      $("stand").textContent = bilder.length
+        ? `${bilder.length} Bilder · ${mb(d.bytes)} Thumbnails` : "";
+      zeichne();
+    });
+  }
+  lade();
+
+  function melde(text, gut) {
+    const m = $("melder");
+    m.textContent = text;
+    m.className = "melder " + (gut ? "gut" : "schlecht");
+    setTimeout(() => { if (m.textContent === text) m.textContent = ""; }, 5000);
+  }
+
+  $("alleAn").onclick = () => { bilder.forEach(b => gewaehlt.add(b.sha256)); zeichne(); };
+  $("alleAus").onclick = () => { gewaehlt.clear(); zeichne(); };
+
+  $("bZurueck").onclick = () => {
+    const shas = [...gewaehlt];
+    fetch("/api/papierkorb/zurueckholen", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({sha256: shas}),
+    }).then(r => r.json()).then(a => {
+      melde(`${a.anzahl} Bilder wiederhergestellt.`, true);
+      gewaehlt.clear(); lade();
+    });
+  };
+
+  $("bEndgueltig").onclick = () => {
+    const shas = [...gewaehlt];
+    if (!confirm(
+      `${shas.length} Bilder endgültig aus dem Papierkorb entfernen?\n\n`
+      + "Die Thumbnails werden gelöscht und geben Platz frei. Die Bilder "
+      + "bleiben dauerhaft gesperrt und kommen auch bei einem erneuten "
+      + "Takeout nicht zurück.\n\n"
+      + "Die Originaldateien im Takeout-Ordner bleiben unangetastet.")) return;
+    fetch("/api/papierkorb/endgueltig", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({sha256: shas}),
+    }).then(r => r.json()).then(a => {
+      melde(`${a.anzahl} Bilder entfernt, ${mb(a.bytes)} frei.`, true);
+      gewaehlt.clear(); lade();
+    });
+  };
+})();
+</script>
+</body>
+</html>

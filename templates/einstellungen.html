@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fotoserver — Einstellungen</title>
+<style>
+  :root {
+    --bg:#111214; --feld:#1b1d20; --rand:#2c2f34;
+    --text:#e8e8e8; --leise:#8b9096; --akzent:#6ea8fe; --gut:#5fbf7f; --warn:#e0705a;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--bg); color:var(--text);
+    font:15px/1.55 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    padding:2.5rem 1.5rem 5rem;
+  }
+  .huelle { max-width:52rem; margin:0 auto; }
+
+  header { display:flex; align-items:baseline; justify-content:space-between;
+           gap:1rem; margin-bottom:2rem; flex-wrap:wrap; }
+  h1 { font-size:1.5rem; font-weight:400; letter-spacing:.01em; }
+  a { color:var(--akzent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  section {
+    background:var(--feld); border:1px solid var(--rand); border-radius:10px;
+    padding:1.4rem 1.5rem; margin-bottom:1.2rem;
+  }
+  h2 { font-size:1rem; font-weight:600; margin-bottom:1rem;
+       color:var(--text); letter-spacing:.02em; }
+  .hinweis { color:var(--leise); font-size:.86rem; margin-top:.5rem; }
+
+  .zeile { display:flex; align-items:center; gap:1rem; flex-wrap:wrap;
+           margin-bottom:1rem; }
+  .zeile:last-child { margin-bottom:0; }
+  label.feld { min-width:9rem; color:var(--leise); }
+
+  select {
+    background:var(--bg); border:1px solid var(--rand); border-radius:6px;
+    color:var(--text); padding:.45rem .6rem; font:inherit; min-width:14rem;
+  }
+  select:focus { outline:none; border-color:var(--akzent); }
+
+  input[type=number], input[type=text] {
+    background:var(--bg); border:1px solid var(--rand); border-radius:6px;
+    color:var(--text); padding:.45rem .6rem; font:inherit; width:7rem;
+  }
+  input[type=text].breit { width:100%; }
+  input:focus { outline:none; border-color:var(--akzent); }
+  input[type=range] { flex:1; min-width:12rem; accent-color:var(--akzent); }
+
+  .modi { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .modi label {
+    border:1px solid var(--rand); border-radius:6px; padding:.4rem .9rem;
+    cursor:pointer; color:var(--leise);
+  }
+  .modi input { display:none; }
+  .modi input:checked + span { color:var(--text); }
+  .modi label:has(input:checked) { border-color:var(--akzent); background:#1f2937; }
+
+  .albenkopf { display:flex; align-items:center; gap:.75rem; margin-bottom:.75rem;
+               flex-wrap:wrap; }
+  .albenkopf input[type=text] { flex:1; min-width:10rem; width:auto; }
+  .liste {
+    max-height:17rem; overflow-y:auto; border:1px solid var(--rand);
+    border-radius:6px; padding:.4rem;
+  }
+  .liste label {
+    display:flex; align-items:center; gap:.6rem; padding:.28rem .5rem;
+    border-radius:4px; cursor:pointer;
+  }
+  .liste label:hover { background:#22252a; }
+  .liste .anz { margin-left:auto; color:var(--leise); font-size:.82rem; }
+  .liste input { accent-color:var(--akzent); }
+
+  /* Spaltenüberschriften über der Albenliste.  Der linke Abstand hält
+     "Name" über den Albumnamen, nicht über den Ankreuzfeldern. */
+  .listenkopf { display:flex; padding:0 .9rem .4rem 2rem; color:var(--leise);
+                font-size:.8rem; letter-spacing:.02em; }
+  .listenkopf .anz { margin-left:auto; }
+
+  .dazu { display:flex; align-items:center; gap:.6rem; margin-top:.9rem;
+          cursor:pointer; }
+  .dazu input { accent-color:var(--akzent); }
+
+  button {
+    background:#2a2f36; color:var(--text); border:1px solid var(--rand);
+    border-radius:6px; padding:.5rem 1.1rem; font:inherit; cursor:pointer;
+  }
+  button:hover:not(:disabled) { background:#333941; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.wichtig { background:var(--akzent); border-color:var(--akzent); color:#0c1116;
+                   font-weight:600; }
+  button.wichtig:hover:not(:disabled) { background:#8bbcff; }
+  button.gefahr { border-color:var(--warn); color:var(--warn); }
+  /* Link, der wie ein Knopf aussieht - für den Papierkorb neben Speichern */
+  a.knopf { background:#2a2f36; color:var(--text); border:1px solid var(--rand);
+            border-radius:6px; padding:.5rem 1.1rem; text-decoration:none; }
+  a.knopf:hover { background:#333941; text-decoration:none; }
+
+  .knopfzeile { display:flex; align-items:center; gap:.9rem; flex-wrap:wrap; }
+  .melder { font-size:.9rem; }
+  .melder.gut { color:var(--gut); }
+  .melder.schlecht { color:var(--warn); }
+
+  .zahlen { display:grid; grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));
+            gap:.9rem; }
+  .kachel { background:var(--bg); border:1px solid var(--rand); border-radius:8px;
+            padding:.8rem .9rem; }
+  .kachel b { display:block; font-size:1.3rem; font-weight:500; }
+  .kachel span { color:var(--leise); font-size:.83rem; }
+
+  .weggrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));
+             gap:.9rem; }
+  .weggrid figure { background:var(--bg); border:1px solid var(--rand);
+                    border-radius:8px; overflow:hidden; }
+  .weggrid img { width:100%; height:6.5rem; object-fit:cover; display:block;
+                 background:#000; opacity:.55; }
+  .weggrid figcaption { padding:.5rem .6rem; font-size:.76rem; color:var(--leise);
+                        word-break:break-all; }
+  .weggrid button { width:calc(100% - 1.2rem); margin:0 .6rem .6rem;
+                    padding:.32rem; font-size:.82rem; }
+
+  .fortschritt { height:6px; background:var(--bg); border-radius:3px;
+                 overflow:hidden; margin:.8rem 0; }
+  .fortschritt i { display:block; height:100%; background:var(--akzent); width:0;
+                   transition:width .4s ease; }
+  pre.log {
+    background:#0c0d0f; border:1px solid var(--rand); border-radius:6px;
+    padding:.8rem; max-height:20rem; overflow:auto; font-size:.8rem;
+    line-height:1.45; white-space:pre-wrap; word-break:break-word;
+    color:#c7ccd1; margin-top:.8rem;
+  }
+  pre.log:empty { display:none; }
+
+  /* Was an Nachschub bereitliegt und was noch Platz belegt */
+  .ablage { background:var(--bg); border:1px solid var(--rand);
+            border-radius:8px; padding:.9rem 1rem; font-size:.88rem; }
+  .ablage .satz { display:flex; gap:.8rem; padding:.22rem 0; }
+  .ablage .satz b { font-weight:500; }
+  .ablage .wert { margin-left:auto; color:var(--leise); white-space:nowrap; }
+  .ablage code { background:#0c0d0f; border:1px solid var(--rand);
+                 border-radius:4px; padding:.08rem .35rem; font-size:.85em; }
+  .ablage .bereit { color:var(--gut); }
+
+  .warnkasten { background:#241a18; border:1px solid #6d3a33;
+                border-radius:8px; padding:.9rem 1rem; font-size:.88rem;
+                line-height:1.5; }
+  .warnkasten b { color:var(--warn); }
+</style>
+</head>
+<body>
+<div class="huelle">
+
+  <header>
+    <h1>Fotoserver</h1>
+    <nav><a href="/">← zur Slideshow</a></nav>
+  </header>
+
+  <section>
+    <h2>Anzeige</h2>
+    <div class="zeile">
+      <label class="feld" for="dauer">Anzeigedauer</label>
+      <input type="number" id="dauer" min="2" max="300" step="1">
+      <span class="hinweis" style="margin:0">Sekunden</span>
+      <input type="range" id="dauerRegler" min="2" max="120" step="1">
+    </div>
+    <div class="zeile">
+      <label class="feld">Reihenfolge</label>
+      <div class="modi" id="modi">
+        <label><input type="radio" name="modus" value="zufall"><span>zufällig</span></label>
+        <label><input type="radio" name="modus" value="chrono"><span>chronologisch</span></label>
+        <label><input type="radio" name="modus" value="neueste"><span>neueste zuerst</span></label>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Alben</h2>
+    <div class="albenkopf">
+      <input type="text" id="albensuche" placeholder="Album suchen …">
+      <button type="button" id="alleAn">alle</button>
+      <button type="button" id="alleAus">keine</button>
+      <span class="hinweis" style="margin:0" id="albenZahl"></span>
+    </div>
+    <div class="listenkopf"><span>Name</span><span class="anz">Anzahl Bilder</span></div>
+    <div class="liste" id="alben">wird geladen …</div>
+    <label class="dazu">
+      <input type="checkbox" id="ohneAlbum" checked>
+      <span>Bilder ohne Albumzuordnung</span>
+    </label>
+  </section>
+
+  <section>
+    <div class="knopfzeile">
+      <button class="wichtig" id="speichern">Speichern</button>
+      <a class="knopf" href="/papierkorb">Papierkorb</a>
+      <span class="melder" id="melder"></span>
+    </div>
+    <p class="hinweis">Die Slideshow übernimmt Änderungen von allein, spätestens
+      nach einer halben Minute.</p>
+  </section>
+
+  <section>
+    <h2>Fernseher (Google Cast)</h2>
+    <p class="hinweis" style="margin:0 0 1rem">
+      Schickt dieselben Bilder parallel an einen Chromecast. Läuft im Server,
+      ganz ohne offenen Browser — der Rechner darf dabei kopflos sein. Datum
+      und Ort werden ins Bild gerechnet, weil der Fernseher nur ein fertiges
+      Bild anzeigen kann.
+    </p>
+    <div class="zeile">
+      <label class="feld" for="castGeraet">Gerät</label>
+      <select id="castGeraet"><option value="">— noch nicht gesucht —</option></select>
+      <button type="button" id="castSuchen">Suchen</button>
+    </div>
+    <div class="zeile">
+      <label class="feld" for="castSkala">Schriftgröße</label>
+      <input type="range" id="castSkala" min="0.4" max="2" step="0.1">
+      <span class="hinweis" style="margin:0" id="castSkalaWert"></span>
+    </div>
+    <div class="zeile">
+      <label class="feld">Vorschau</label>
+      <img id="castVorschau" alt="" style="max-width:100%;border-radius:6px;
+           border:1px solid var(--rand);background:#000">
+    </div>
+    <div class="knopfzeile">
+      <button class="wichtig" id="castAn">Senden starten</button>
+      <button id="castAus" hidden>Senden beenden</button>
+      <span class="melder" id="castMelder"></span>
+    </div>
+    <p class="hinweis" id="castStand"></p>
+  </section>
+
+  <section>
+    <h2>Bestand</h2>
+    <div class="zahlen" id="zahlen"></div>
+    <p class="hinweis" id="luecken"></p>
+  </section>
+
+  <section>
+    <h2>Import</h2>
+    <p class="hinweis" style="margin:0 0 1rem">
+      Packt neue Archive aus, liest sie ein, erzeugt fehlende Thumbnails und
+      ordnet Orte zu — in dieser Reihenfolge. Läuft im Hintergrund, die
+      Slideshow bleibt erreichbar. Von Hand eingetragene Daten bleiben erhalten.
+    </p>
+
+    <div class="ablage" id="ablage">wird geladen …</div>
+
+    <div class="knopfzeile" style="margin-top:1rem">
+      <button class="wichtig" id="importStart">Import starten</button>
+      <button class="gefahr" id="importStop" hidden>Abbrechen</button>
+      <span class="melder" id="importMelder"></span>
+    </div>
+    <div class="fortschritt" id="balkenHuelle" hidden><i id="balken"></i></div>
+    <div class="fortschritt" id="ladeHuelle" hidden><i id="ladebalken"></i></div>
+    <pre class="log" id="importLog"></pre>
+    <input type="file" id="datei" accept=".zip,.tgz,.tar,.tar.gz" hidden>
+  </section>
+
+  <section>
+    <h2>Platz schaffen</h2>
+    <p class="hinweis" style="margin:0 0 1rem">
+      Nach dem Import wird der Takeout nicht mehr gebraucht — die Slideshow
+      lebt allein von der Datenbank und den Thumbnails unter
+      <code>cache/</code>.
+    </p>
+    <div class="warnkasten">
+      <b>Was dabei verloren geht:</b> die Bilder in voller Auflösung. Der
+      Viewer zeigt ohnehin nur die 1920-px-Fassung, die Originale liegen
+      danach nur noch bei Google Photos. Die Datenbank, alle Korrekturen
+      von Hand und der Papierkorb bleiben unberührt.
+    </div>
+    <div class="knopfzeile" style="margin-top:1rem">
+      <button class="gefahr" id="wegBaum">Entpackten Takeout löschen</button>
+      <button class="gefahr" id="wegArchive">Archive löschen</button>
+      <span class="melder" id="wegMelder"></span>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  let alleAlben = [];
+  let gewaehlt = new Set();
+
+  // ---------------------------------------------------------- Einstellungen
+
+  function zeichneAlben() {
+    const suche = $("albensuche").value.trim().toLowerCase();
+    const ziel = $("alben");
+    ziel.innerHTML = "";
+    const sichtbar = alleAlben.filter(a => a.album.toLowerCase().includes(suche));
+    if (!sichtbar.length) { ziel.textContent = "kein Treffer"; return; }
+    for (const a of sichtbar) {
+      const l = document.createElement("label");
+      const c = document.createElement("input");
+      c.type = "checkbox"; c.checked = gewaehlt.has(a.album);
+      c.onchange = () => {
+        c.checked ? gewaehlt.add(a.album) : gewaehlt.delete(a.album);
+        zaehle();
+      };
+      const t = document.createElement("span"); t.textContent = a.album;
+      const n = document.createElement("span"); n.className = "anz";
+      n.textContent = a.anzahl;
+      l.append(c, t, n); ziel.appendChild(l);
+    }
+    zaehle();
+  }
+
+  function zaehle() {
+    $("albenZahl").textContent = gewaehlt.size
+      ? `${gewaehlt.size} von ${alleAlben.length} gewählt`
+      : `alle ${alleAlben.length}`;
+  }
+
+  Promise.all([
+    fetch("/api/einstellungen").then(r => r.json()),
+    fetch("/api/alben").then(r => r.json()),
+  ]).then(([e, alben]) => {
+    alleAlben = alben;
+    gewaehlt = new Set(e.einstellungen.alben);
+    $("dauer").value = e.einstellungen.dauer;
+    $("dauerRegler").value = Math.min(120, e.einstellungen.dauer);
+    $("ohneAlbum").checked = e.einstellungen.ohne_album !== false;
+    $("castSkala").value = e.einstellungen.cast_skala ?? 1;
+    $("castSkalaWert").textContent =
+      Math.round((e.einstellungen.cast_skala ?? 1) * 100) + " %";
+    const r = document.querySelector(`input[name=modus][value="${e.einstellungen.modus}"]`);
+    if (r) r.checked = true;
+    zeichneAlben();
+  });
+
+  $("dauerRegler").oninput = () => { $("dauer").value = $("dauerRegler").value; };
+  $("dauer").oninput = () => { $("dauerRegler").value = Math.min(120, $("dauer").value || 8); };
+  $("albensuche").oninput = zeichneAlben;
+  $("alleAn").onclick = () => { alleAlben.forEach(a => gewaehlt.add(a.album)); zeichneAlben(); };
+  $("alleAus").onclick = () => { gewaehlt.clear(); zeichneAlben(); };
+
+  $("speichern").onclick = () => {
+    const modus = document.querySelector("input[name=modus]:checked");
+    // "alle gewählt" und "nichts gewählt" sind dasselbe - leer ist ehrlicher
+    const alben = gewaehlt.size === alleAlben.length ? [] : [...gewaehlt];
+    fetch("/api/einstellungen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        dauer: parseInt($("dauer").value, 10) || 8,
+        modus: modus ? modus.value : "zufall",
+        ohne_album: $("ohneAlbum").checked,
+        alben,
+      }),
+    }).then(r => r.json()).then(a => {
+      melde("melder", a.fehler || "Gespeichert.", !a.fehler);
+      if (!a.fehler) { $("dauer").value = a.einstellungen.dauer; ladeZahlen(); }
+    }).catch(() => melde("melder", "Speichern fehlgeschlagen.", false));
+  };
+
+  function melde(id, text, gut) {
+    const el = $(id);
+    el.textContent = text;
+    el.className = "melder " + (gut ? "gut" : "schlecht");
+    if (gut) setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 4000);
+  }
+
+  // ----------------------------------------------------------------- Zahlen
+
+  function ladeZahlen() {
+    fetch("/api/zahlen").then(r => r.json()).then(z => {
+      const kacheln = [
+        ["zeigbar", "Bilder in der Slideshow"],
+        ["mit_ort", "mit Ortsangabe"],
+        ["von_hand", "von Hand ergänzt"],
+        ["videos", "Videos (ohne Standbild)"],
+      ];
+      $("zahlen").innerHTML = kacheln.map(([k, t]) =>
+        `<div class="kachel"><b>${(z[k] ?? 0).toLocaleString("de-DE")}</b><span>${t}</span></div>`
+      ).join("");
+      const l = z.luecken ?? 0;
+      const teile = [];
+      teile.push(l
+        ? `${l.toLocaleString("de-DE")} Bilder ohne verlässliches Datum oder ohne Ort — `
+          + `<a href="/?nur=luecken&bearbeiten=1">diese der Reihe nach bearbeiten</a>`
+        : "Bei allen Bildern stehen Datum und Ort.");
+      const w = z.geloescht ?? 0;
+      teile.push(w
+        ? `<a href="/papierkorb">Papierkorb</a>: ${w.toLocaleString("de-DE")} Bilder`
+        : `<a href="/papierkorb">Papierkorb</a> ist leer`);
+      $("luecken").innerHTML = teile.join("<br>");
+    });
+  }
+  ladeZahlen();
+
+
+  // ----------------------------------------------------------------- Import
+
+  let importUhr = null;
+
+  function zeichneImport(s) {
+    const laeuft = s.aktiv;
+    $("importStart").disabled = laeuft;
+    $("importStart").textContent = laeuft ? "läuft …" : "Import starten";
+    $("importStop").hidden = !laeuft;
+    $("balkenHuelle").hidden = !laeuft;
+    if (laeuft) {
+      const anteil = s.schritte_gesamt
+        ? Math.max(0, (s.schritt_nr - 1)) / s.schritte_gesamt * 100 : 0;
+      $("balken").style.width = anteil + "%";
+      melde("importMelder",
+            `Schritt ${s.schritt_nr}/${s.schritte_gesamt}: ${s.schritt || ""}`, true);
+      $("importMelder").className = "melder";
+    } else if (s.beendet) {
+      melde("importMelder", `${s.meldung || "Fertig."} (${s.beendet})`, !!s.erfolg);
+      $("importMelder").className = "melder " + (s.erfolg ? "gut" : "schlecht");
+    }
+    const log = $("importLog");
+    const unten = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    log.textContent = (s.zeilen || []).join("\n");
+    if (unten) log.scrollTop = log.scrollHeight;
+  }
+
+  function frageImport() {
+    fetch("/api/import/status").then(r => r.json()).then(s => {
+      zeichneImport(s);
+      clearTimeout(importUhr);
+      if (s.aktiv) importUhr = setTimeout(frageImport, 1500);
+      else { ladeZahlen(); ladeAblage(); }
+    });
+  }
+
+  $("importStop").onclick = () => {
+    fetch("/api/import/abbrechen", {method: "POST"}).then(frageImport);
+  };
+
+  frageImport();
+
+  // ------------------------------------------------------------- Fernseher
+
+  let castUhr = null;
+
+  function zeichneCast(c) {
+    const laeuft = c.an;
+    $("castAn").hidden = laeuft;
+    $("castAus").hidden = !laeuft;
+    $("castAn").disabled = !c.moeglich;
+    if (!c.moeglich) {
+      $("castStand").textContent =
+        "PyChromecast ist nicht installiert — dieser Abschnitt bleibt aus.";
+      return;
+    }
+    const teile = [];
+    if (c.meldung) teile.push(c.meldung);
+    if (laeuft && c.anzahl) teile.push(`Bild ${c.bild_nr} von ${c.anzahl}`);
+    teile.push(`Der Fernseher holt die Bilder von ${c.adresse}`);
+    $("castStand").textContent = teile.join(" · ");
+    $("castMelder").textContent = laeuft
+      ? (c.verbunden ? "sendet" : "verbindet …") : "";
+    $("castMelder").className = "melder" + (c.verbunden ? " gut" : "");
+
+    // Gerätename aus den Einstellungen anbieten, auch ohne Suchlauf
+    const liste = $("castGeraet");
+    if (c.geraet && ![...liste.options].some(o => o.value === c.geraet)) {
+      liste.add(new Option(c.geraet, c.geraet));
+    }
+    if (c.geraet) liste.value = c.geraet;
+  }
+
+  // Schriftgröße auf dem Fernseher: Vorschau am echten Bild, damit man
+  // nicht raten muss, wie groß "groß genug" ist.
+  let vorschauId = null, skalaUhr = null;
+
+  function zeigeVorschau() {
+    const s = parseFloat($("castSkala").value) || 1;
+    $("castSkalaWert").textContent = Math.round(s * 100) + " %";
+    if (!vorschauId) return;
+    clearTimeout(skalaUhr);
+    skalaUhr = setTimeout(() => {
+      $("castVorschau").src = `/cast/bild/${vorschauId}?v=${Date.now()}`;
+    }, 350);
+  }
+
+  $("castSkala").oninput = () => {
+    $("castSkalaWert").textContent =
+      Math.round((parseFloat($("castSkala").value) || 1) * 100) + " %";
+  };
+  $("castSkala").onchange = () => {
+    fetch("/api/einstellungen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({cast_skala: parseFloat($("castSkala").value)}),
+    }).then(() => zeigeVorschau());
+  };
+
+  // Ein Bild mit Datum und Ort für die Vorschau suchen
+  fetch("/api/playlist").then(r => r.json()).then(d => {
+    const b = (d.bilder || []).find(x => x[1] && x[2]) || d.bilder[0];
+    if (b) { vorschauId = b[0]; zeigeVorschau(); }
+  }).catch(() => {});
+
+  function frageCast() {
+    return fetch("/api/cast").then(r => r.json()).then(c => {
+      zeichneCast(c);
+      clearTimeout(castUhr);
+      // solange gesendet wird, den Fortschritt mitlaufen lassen
+      if (c.an) castUhr = setTimeout(frageCast, 5000);
+      return c;
+    }).catch(() => {});
+  }
+  frageCast();
+
+  $("castSuchen").onclick = () => {
+    $("castSuchen").disabled = true;
+    melde("castMelder", "Suche im Netz … (bis zu 10 s)", true);
+    $("castMelder").className = "melder";
+    fetch("/api/cast/suchen", {method: "POST"})
+      .then(r => r.json().then(a => ({ok: r.ok, a})))
+      .then(({ok, a}) => {
+        if (!ok) { melde("castMelder", a.fehler || "Suche fehlgeschlagen.", false); return; }
+        const liste = $("castGeraet");
+        const vorher = liste.value;
+        liste.innerHTML = "";
+        if (!a.geraete.length) {
+          liste.add(new Option("— nichts gefunden —", ""));
+          melde("castMelder", "Kein Cast-Gerät im Netz gefunden.", false);
+          return;
+        }
+        for (const g of a.geraete) liste.add(new Option(g, g));
+        if (a.geraete.includes(vorher)) liste.value = vorher;
+        melde("castMelder", `${a.geraete.length} Gerät(e) gefunden.`, true);
+      })
+      .finally(() => { $("castSuchen").disabled = false; });
+  };
+
+  $("castAn").onclick = () => {
+    const geraet = $("castGeraet").value;
+    if (!geraet) { melde("castMelder", "Erst ein Gerät wählen.", false); return; }
+    fetch("/api/cast", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({an: true, geraet}),
+    }).then(r => r.json().then(a => ({ok: r.ok, a}))).then(({ok, a}) => {
+      if (!ok) { melde("castMelder", a.fehler || "Start fehlgeschlagen.", false); return; }
+      zeichneCast({...a, moeglich: true, adresse: a.adresse || ""});
+      frageCast();
+    });
+  };
+
+  $("castAus").onclick = () => {
+    fetch("/api/cast", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({an: false}),
+    }).then(() => frageCast());
+  };
+
+  // ------------------------------------------------------- Takeout-Ablage
+
+  let ablage = null;
+
+  function gb(n) {
+    if (!n) return "0 B";
+    const e = ["B", "KB", "MB", "GB", "TB"];
+    const k = Math.min(e.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return (n / Math.pow(1024, k)).toFixed(k ? 1 : 0) + " " + e[k];
+  }
+
+  function satz(text, wert, klasse) {
+    return `<div class="satz"><span class="${klasse || ""}">${text}</span>`
+         + `<span class="wert">${wert}</span></div>`;
+  }
+
+  function ladeAblage() {
+    return fetch("/api/takeout").then(r => r.json()).then(a => {
+      ablage = a;
+      const archivBytes = a.archive.reduce((s, x) => s + x.bytes, 0);
+      const wartetBytes = a.wartend.reduce((s, x) => s + x.bytes, 0);
+      const teile = [];
+
+      if (a.wartend.length) {
+        teile.push(satz(`<b>${a.wartend.length} neue Archive warten</b> — `
+                        + `der Import packt sie aus`,
+                        gb(wartetBytes), "bereit"));
+      }
+      teile.push(satz(a.baum.dateien
+        ? `Entpackter Takeout — ${a.baum.dateien.toLocaleString("de-DE")} Dateien`
+        : "Kein entpackter Takeout vorhanden", gb(a.baum.bytes)));
+      if (a.archive.length) {
+        teile.push(satz(`${a.archive.length} bereits eingelesene Archive`,
+                        gb(archivBytes)));
+      }
+      teile.push(satz("Freier Plattenplatz", gb(a.frei)));
+      if (!a.wartend.length) {
+        teile.push(`<div class="satz" style="margin-top:.6rem">
+          Neuen Takeout nach <code>${a.samba}</code> kopieren, dann hier
+          „Import starten“. Ohne Netzlaufwerk fragt der Knopf nach einer
+          Datei zum Hochladen.</div>`);
+      }
+      $("ablage").innerHTML = teile.join("");
+      $("wegBaum").disabled = !a.baum.dateien;
+      $("wegArchive").disabled = !a.archive.length;
+    }).catch(() => { $("ablage").textContent = "Ablage nicht abfragbar."; });
+  }
+  ladeAblage();
+
+  // --------------------------------------------------------------- Upload
+
+  function hochladen(datei) {
+    return new Promise((fertig, schief) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", "/api/upload?name=" + encodeURIComponent(datei.name));
+      x.upload.onprogress = ev => {
+        if (!ev.lengthComputable) return;
+        $("ladeHuelle").hidden = false;
+        $("ladebalken").style.width = (ev.loaded / ev.total * 100) + "%";
+        melde("importMelder",
+              `Übertragen: ${gb(ev.loaded)} von ${gb(ev.total)}`, true);
+        $("importMelder").className = "melder";
+      };
+      x.onload = () => {
+        $("ladeHuelle").hidden = true;
+        const a = JSON.parse(x.responseText || "{}");
+        x.status === 200 ? fertig(a) : schief(a.fehler || "Fehler " + x.status);
+      };
+      x.onerror = () => { $("ladeHuelle").hidden = true; schief("Verbindung abgebrochen"); };
+      x.send(datei);
+    });
+  }
+
+  $("datei").onchange = () => {
+    const datei = $("datei").files[0];
+    if (!datei) { $("importStart").disabled = false; return; }
+    hochladen(datei)
+      .then(() => ladeAblage())
+      .then(() => starteImport())
+      .catch(f => {
+        melde("importMelder", "Hochladen fehlgeschlagen: " + f, false);
+        $("importStart").disabled = false;
+      })
+      .finally(() => { $("datei").value = ""; });
+  };
+
+  function starteImport() {
+    $("importStart").disabled = true;
+    return fetch("/api/import/start", {method: "POST"})
+      .then(r => r.json().then(a => ({ok: r.ok, a})))
+      .then(({ok, a}) => {
+        if (!ok) melde("importMelder", a.fehler || "Start fehlgeschlagen.", false);
+        frageImport();
+      });
+  }
+
+  // Ist weder ein entpackter Takeout noch ein wartendes Archiv da, hat der
+  // Knopf nichts einzulesen - dann zuerst nach einer Datei fragen.
+  $("importStart").onclick = () => {
+    if (ablage && !ablage.wartend.length && !ablage.baum.dateien) {
+      $("datei").click();
+      return;
+    }
+    starteImport();
+  };
+
+  // ---------------------------------------------------------- Platz schaffen
+
+  function wirfWeg(was, frage) {
+    if (!confirm(frage + "\n\nDas lässt sich nicht rückgängig machen.")) return;
+    fetch("/api/takeout/loeschen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({was, bestaetigt: "LOESCHEN"}),
+    }).then(r => r.json().then(a => ({ok: r.ok, a}))).then(({ok, a}) => {
+      melde("wegMelder", ok ? `${gb(a.bytes)} frei geworden.`
+                            : (a.fehler || "Fehlgeschlagen."), ok);
+      ladeAblage();
+    }).catch(() => melde("wegMelder", "Fehlgeschlagen.", false));
+  }
+
+  $("wegBaum").onclick = () => wirfWeg("baum",
+    "Den entpackten Takeout löschen?\n\n"
+    + (ablage ? gb(ablage.baum.bytes) + " werden frei. " : "")
+    + "Die Bilder in voller Auflösung sind danach nur noch bei Google.");
+
+  $("wegArchive").onclick = () => wirfWeg("archive",
+    "Die bereits eingelesenen Archive löschen?");
+})();
+</script>
+</body>
+</html>

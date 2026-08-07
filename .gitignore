@@ -1,0 +1,29 @@
+# Daten und Erzeugtes — nichts davon gehört in ein öffentliches Repository
+photos.db
+photos.db-*
+photos.db.vor-*
+cache/
+inbox/
+settings.json
+*.log
+unmatched_sidecars.txt
+__pycache__/
+*.pyc
+
+# Ortsdatenbank aus GeoNames: 10 MB, mit `geocode.py --aufbereiten` neu baubar.
+# Die kleine Ergänzung (orte-ergaenzung.tsv) bleibt dagegen drin.
+geo/orte.tsv
+geo/*.txt
+geo/*.zip
+
+# Maschinenspezifisch: enthalten Benutzernamen, Pfade, Adressen im Heimnetz
+# und Seriennummern. Im Repository stehen stattdessen die *.beispiel-Dateien.
+photoserver.service
+samba-inbox.conf
+homeassistant.yaml
+einrichten.sh
+sicherung.sh
+
+# Projektnotizen mit persönlichen Angaben
+CLAUDE.md
+.claude/

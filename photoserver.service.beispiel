@@ -1,0 +1,32 @@
+[Unit]
+Description=Fotoserver Viewer (Slideshow)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=BENUTZER
+Group=BENUTZER
+WorkingDirectory=/home/BENUTZER/photoserver
+ExecStart=/home/BENUTZER/photoserver-venv/bin/python3 /home/BENUTZER/photoserver/viewer.py --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+
+# Geschrieben wird nur in diesen beiden Baeumen: photoserver (Datenbank,
+# Cache, Inbox) und takeout-import (Entpacken neuer Archive, Aufraeumen).
+# Alles andere bleibt fuer den Dienst unsichtbar oder nur lesbar.
+ProtectSystem=strict
+ReadWritePaths=/home/BENUTZER/photoserver /home/BENUTZER/takeout-import
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Reserve, falls sich doch einmal etwas nicht schliesst: mit den 1024 aus
+# der Vorgabe stand der Bilderrahmen nach zehn Stunden still.
+LimitNOFILE=8192
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

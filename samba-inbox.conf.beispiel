@@ -1,0 +1,23 @@
+# Samba-Freigabe fuer neue Takeout-Archive.
+#
+# Hier landet der monatliche Export vom Windows-Rechner aus; auf der
+# Einstellungsseite packt "Import starten" ihn dann aus und liest ihn ein.
+#
+# Einbinden (einmalig, als root):
+#     sudo cp ~/photoserver/samba-inbox.conf /etc/samba/conf.d/inbox.conf
+#     echo 'include = /etc/samba/conf.d/inbox.conf' | sudo tee -a /etc/samba/smb.conf
+#     sudo smbpasswd -a BENUTZER          # Passwort fuer die Freigabe setzen
+#     sudo systemctl restart smbd
+#
+# Erreichbar ist die Freigabe danach unter  \\RECHNERNAME\inbox
+
+[inbox]
+   comment = Fotoserver - neue Takeout-Archive ablegen
+   path = /home/BENUTZER/photoserver/inbox
+   browseable = yes
+   read only = no
+   guest ok = no
+   valid users = BENUTZER
+   force user = BENUTZER
+   create mask = 0644
+   directory mask = 0755

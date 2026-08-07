@@ -1,0 +1,1216 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fotoserver</title>
+<style>
+  :root {
+    --rand: 3vmin;
+    /* per Maus ziehbar, siehe "Groesse ziehen" im Skript.  Beide Werte
+       stehen in settings.json und ueberleben einen Neustart. */
+    --info-skala: 1;
+    --leiste-skala: 1;
+    /* unsichtbarer Greifrand um die Bedienleiste: hier zieht man ihre
+       Groesse, ohne einen Knopf zu treffen */
+    --greif: calc(1.5rem * var(--leiste-skala));
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body.ruhe { cursor: none; }
+
+  .buehne { position: fixed; inset: 0; transition: right .35s ease; }
+  body.bearbeiten .buehne { right: 25rem; }
+  @media (max-width: 900px) { body.bearbeiten .buehne { right: 0; bottom: 58%; } }
+
+  .buehne img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;          /* nie beschneiden, Rest bleibt schwarz */
+    opacity: 0;
+    transition: opacity 1.1s ease-in-out;
+    will-change: opacity;
+  }
+  .buehne img.sichtbar { opacity: 1; }
+
+  /* Beschriftung.  Der dunkle Kasten liegt nur hinter dem Text, damit
+     helle Bilder die Schrift nicht auffressen. */
+  .info {
+    position: fixed;
+    left: var(--rand); bottom: var(--rand);
+    max-width: 76vw;
+    padding: .55em .95em .6em;
+    border-radius: 12px;
+    background: rgba(0,0,0,.5);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    line-height: 1.3;
+    opacity: 0;
+    transition: opacity .7s ease-in-out;
+    cursor: nwse-resize;          /* daran laesst sich die Groesse ziehen */
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .info.sichtbar { opacity: 1; }
+  .info.leer { display: none; }
+  /* Im Ruhezustand ist die Beschriftung nur Deko und darf keine Tipps
+     aufs Bild abfangen. */
+  body.ruhe .info { pointer-events: none; }
+  .info .datum { font-size: calc(3vmin * var(--info-skala)); font-weight: 400;
+                 letter-spacing: .01em;
+                 text-shadow: 0 1px 6px rgba(0,0,0,.7); }
+  .info .ort   { font-size: calc(2.3vmin * var(--info-skala)); font-weight: 300;
+                 margin-top: .18em; color: rgba(255,255,255,.88);
+                 text-shadow: 0 1px 6px rgba(0,0,0,.7); }
+  .info .ort:empty, .info .datum:empty { display: none; }
+
+  /* Bedienleiste - Knöpfe, damit es auch ohne Tastatur geht.
+     Die Zone drumherum ist unsichtbar und dient allein dazu, die Leiste
+     anzufassen, ohne einen Knopf zu drücken. */
+  .leistezone {
+    position: fixed;
+    right: calc(var(--rand) - var(--greif));
+    bottom: calc(var(--rand) - var(--greif));
+    padding: var(--greif);
+    cursor: nwse-resize;
+    touch-action: none;
+    pointer-events: none;
+  }
+  body:not(.ruhe) .leistezone { pointer-events: auto; }
+  body.bearbeiten .leistezone { display: none; }
+
+  .leiste {
+    display: flex; align-items: center; gap: calc(.5rem * var(--leiste-skala));
+    padding: calc(.45rem * var(--leiste-skala)) calc(.55rem * var(--leiste-skala));
+    border-radius: calc(14px * var(--leiste-skala));
+    background: rgba(0,0,0,.5);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    opacity: 0; transform: translateY(.5rem);
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  body:not(.ruhe) .leiste { opacity: 1; transform: none; }
+
+  .leiste button, .leiste a {
+    display: flex; align-items: center; justify-content: center;
+    min-width: calc(3rem * var(--leiste-skala));
+    height: calc(3rem * var(--leiste-skala));
+    padding: 0 calc(.7rem * var(--leiste-skala));
+    border: 0; border-radius: calc(10px * var(--leiste-skala));
+    background: rgba(255,255,255,.09); color: #fff;
+    font: inherit; font-size: calc(1.5rem * var(--leiste-skala));
+    line-height: 1; cursor: pointer; text-decoration: none;
+  }
+  .leiste button:hover, .leiste a:hover { background: rgba(255,255,255,.2); }
+  .leiste button:active { background: rgba(255,255,255,.3); }
+  .leiste .titel { font-size: .95rem; opacity: .75; padding: 0 .5rem 0 .3rem; }
+
+  /* Kurze Rueckmeldung, etwa nach dem Löschen.  Verschwindet von selbst. */
+  .kurzmeldung {
+    position: fixed; left: 50%; bottom: 14vmin; transform: translateX(-50%);
+    z-index: 60; padding: .65em 1.3em; border-radius: 10px;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    font-size: 2.2vmin; white-space: nowrap;
+    opacity: 0; transition: opacity .3s ease; pointer-events: none;
+  }
+  .kurzmeldung.sichtbar { opacity: 1; }
+
+  .pause {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .35s ease;
+    pointer-events: none;
+  }
+  .pause.an { opacity: .8; }
+  .pause svg { width: 10vmin; height: 10vmin;
+               filter: drop-shadow(0 2px 18px rgba(0,0,0,.9)); }
+
+  .meldung {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 6vmin;
+    font-size: 2.4vmin; font-weight: 300;
+    color: rgba(255,255,255,.65);
+    line-height: 1.6;
+  }
+  .meldung[hidden] { display: none; }
+
+  /* ------------------------------------------------------- Edit-Modus */
+
+  .werkbank {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 25rem;
+    background: rgba(16,17,19,.95);
+    backdrop-filter: blur(14px);
+    border-left: 1px solid #2c2f34;
+    padding: 1.5rem 1.4rem 3rem;
+    overflow-y: auto;
+    font-size: 15px; line-height: 1.5;
+    transform: translateX(100%);
+    transition: transform .35s ease;
+  }
+  body.bearbeiten .werkbank { transform: none; }
+  @media (max-width: 900px) {
+    .werkbank { top: 42%; width: 100%; border-left: 0; border-top: 1px solid #2c2f34; }
+  }
+
+  .werkbank .kopf { display: flex; align-items: center; justify-content: space-between; }
+  .werkbank h2 { font-size: 1.05rem; font-weight: 600; }
+  .werkbank .zu {
+    background: none; border: 0; color: #8b9096; font-size: 1.6rem;
+    line-height: 1; cursor: pointer; padding: .2rem .4rem;
+  }
+  .werkbank .zu:hover { color: #fff; }
+
+  /* Alben stehen oben, weil der Albumname oft der einzige Hinweis auf
+     Zeit und Ort ist - "1991 Hawaii" sagt mehr als jedes EXIF-Feld. */
+  .werkbank .alben { display: flex; flex-wrap: wrap; gap: .35rem; margin: .6rem 0 .5rem; }
+  .werkbank .alben span {
+    background: #253041; border: 1px solid #35455e; border-radius: 999px;
+    padding: .18rem .65rem; font-size: .84rem; color: #cfe0ff;
+  }
+  .werkbank .alben:empty { display: none; }
+  .werkbank .quelle { color: #6f747a; font-size: .78rem; margin-bottom: 1.3rem;
+                      word-break: break-all; }
+
+  .werkbank label { display: block; color: #8b9096; margin: 0 0 .35rem; font-size: .86rem; }
+  .werkbank .gruppe { margin-bottom: 1.2rem; position: relative; }
+  .werkbank input[type=text] {
+    width: 100%; background: #0c0d0f; border: 1px solid #2c2f34;
+    border-radius: 6px; color: #e8e8e8; padding: .6rem .65rem; font: inherit;
+  }
+  .werkbank input:focus { outline: none; border-color: #6ea8fe; }
+  .werkbank .tipp { color: #6f747a; font-size: .79rem; margin-top: .35rem; }
+
+  .vorschlaege {
+    position: absolute; left: 0; right: 0; top: 100%; z-index: 5;
+    background: #16181b; border: 1px solid #2c2f34; border-radius: 6px;
+    margin-top: .25rem; max-height: 14rem; overflow-y: auto;
+  }
+  .vorschlaege[hidden] { display: none; }
+  .vorschlaege div { padding: .5rem .65rem; cursor: pointer; }
+  .vorschlaege div:hover, .vorschlaege div.aktiv { background: #263041; }
+  .vorschlaege .land { color: #8b9096; font-size: .82rem; }
+
+  .werkbank .knoepfe { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  /* Der Melder sitzt jetzt zwischen Knöpfen und Ortsfeld - ohne festen
+     Abstand nach unten klebt das Ortsfeld an den Knöpfen. */
+  .werkbank .melder + .ortgruppe { margin-top: 1.2rem; }
+  .werkbank button.tat {
+    background: #2a2f36; color: #e8e8e8; border: 1px solid #2c2f34;
+    border-radius: 6px; padding: .55rem 1rem; font: inherit; cursor: pointer;
+  }
+  .werkbank button.tat:hover { background: #333941; }
+  .werkbank button.wichtig { background: #6ea8fe; border-color: #6ea8fe;
+                             color: #0c1116; font-weight: 600; }
+  .werkbank button.wichtig:hover { background: #8bbcff; }
+  .werkbank button.gefahr { border-color: #6d3a33; color: #e0705a; background: #241a18; }
+  .werkbank button.gefahr:hover { background: #33221f; }
+  .werkbank .wegwerfen { margin-top: 1.8rem; border-top: 1px solid #2c2f34;
+                         padding-top: 1.2rem; }
+  .werkbank .melder { font-size: .86rem; min-height: 1.2em; margin-top: .8rem; }
+  .werkbank .melder.gut { color: #5fbf7f; }
+  .werkbank .melder.schlecht { color: #e0705a; }
+
+  .werkbank .knoepfe button { flex: 1; }
+
+  /* Filmstreifen: was zeitlich davor und danach aufgenommen wurde.
+     Das aktuelle Bild traegt einen roten Punkt. */
+  .streifen { margin-top: 1.5rem; border-top: 1px solid #2c2f34; padding-top: 1rem; }
+  .streifenkopf { color: #6f747a; font-size: .79rem; margin-bottom: .5rem; }
+  .filme { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .4rem; }
+  .filme figure {
+    position: relative; flex: 0 0 4.6rem; cursor: pointer;
+    border-radius: 6px; overflow: hidden; border: 2px solid transparent;
+    background: #000;
+  }
+  .filme figure img { width: 100%; height: 3.6rem; object-fit: cover;
+                      display: block; opacity: .6; }
+  .filme figure:hover img { opacity: .9; }
+  .filme figure.jetzt { border-color: #e0453a; }
+  .filme figure.jetzt img { opacity: 1; }
+  .filme .punkt {
+    position: absolute; top: .25rem; right: .25rem;
+    width: .85rem; height: .85rem; border-radius: 50%;
+    background: #e0453a; border: 2px solid rgba(0,0,0,.55);
+  }
+  .filme figcaption {
+    font-size: .62rem; color: #8b9096; text-align: center;
+    padding: .15rem .1rem; line-height: 1.25;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .filme figure.jetzt figcaption { color: #e8e8e8; }
+
+  /* --------------------------------------------------- Ort übernehmen */
+
+  .schleier {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,.72); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; padding: 4vmin;
+  }
+  .schleier[hidden] { display: none; }
+  .dialog {
+    background: #16181b; border: 1px solid #2c2f34; border-radius: 14px;
+    width: min(62rem, 100%); max-height: 88vh; display: flex; flex-direction: column;
+    font-size: 15px;
+  }
+  .dialog header { padding: 1.2rem 1.4rem .9rem; border-bottom: 1px solid #2c2f34; }
+  .dialog h3 { font-size: 1.15rem; font-weight: 600; margin-bottom: .3rem; }
+  .dialog .unter { color: #8b9096; font-size: .88rem; }
+  .dialog .koerper { padding: 1rem 1.4rem; overflow-y: auto; }
+  .dialog footer {
+    padding: 1rem 1.4rem; border-top: 1px solid #2c2f34;
+    display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
+  }
+  .dialog footer .rechts { margin-left: auto; display: flex; gap: .7rem; }
+  .dialog button {
+    background: #2a2f36; color: #e8e8e8; border: 1px solid #2c2f34;
+    border-radius: 6px; padding: .55rem 1.1rem; font: inherit; cursor: pointer;
+  }
+  .dialog button:hover { background: #333941; }
+  .dialog button.wichtig { background: #6ea8fe; border-color: #6ea8fe;
+                           color: #0c1116; font-weight: 600; }
+  .dialog button.wichtig:hover { background: #8bbcff; }
+
+  .kacheln { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+             gap: .7rem; }
+  .kacheln figure {
+    position: relative; border-radius: 8px; overflow: hidden; cursor: pointer;
+    border: 2px solid transparent; background: #000;
+  }
+  .kacheln figure img { width: 100%; height: 6.5rem; object-fit: cover; display: block;
+                        opacity: .45; transition: opacity .15s; }
+  .kacheln figure.an { border-color: #6ea8fe; }
+  .kacheln figure.an img { opacity: 1; }
+  .kacheln .haken {
+    position: absolute; top: .4rem; left: .4rem; width: 1.4rem; height: 1.4rem;
+    border-radius: 50%; border: 2px solid rgba(255,255,255,.75);
+    background: rgba(0,0,0,.5); display: flex; align-items: center;
+    justify-content: center; font-size: .85rem; color: transparent;
+  }
+  .kacheln figure.an .haken { background: #6ea8fe; border-color: #6ea8fe; color: #0c1116; }
+</style>
+</head>
+<body class="ruhe">
+
+<div class="buehne">
+  <img id="ebeneA" alt="">
+  <img id="ebeneB" alt="">
+</div>
+
+<div class="info leer" id="info">
+  <div class="datum" id="datum"></div>
+  <div class="ort"   id="ort"></div>
+</div>
+
+<div class="leistezone" id="leistezone" title="Am Rand ziehen ändert die Größe">
+  <div class="leiste" id="leiste">
+    <button id="kZurueck" title="Vorheriges Bild" aria-label="Vorheriges Bild">‹</button>
+    <button id="kPause" title="Pause" aria-label="Pause">⏸</button>
+    <button id="kVor" title="Nächstes Bild" aria-label="Nächstes Bild">›</button>
+    <button id="kCast" title="Dem Fernseher folgen" aria-label="Dem Fernseher folgen" hidden>📺</button>
+    <button id="kEdit" title="Bearbeiten" aria-label="Bearbeiten">✎</button>
+    <button id="kVoll" title="Vollbild" aria-label="Vollbild">⛶</button>
+    <a href="/einstellungen" title="Einstellungen" aria-label="Einstellungen">⚙</a>
+  </div>
+</div>
+
+<div class="kurzmeldung" id="kurzmeldung"></div>
+
+<div class="pause" id="pausezeichen">
+  <svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
+    <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+    <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+  </svg>
+</div>
+
+<div class="meldung" id="meldung">Bilder werden geladen …</div>
+
+<aside class="werkbank" id="werkbank">
+  <div class="kopf">
+    <h2>Bild bearbeiten</h2>
+    <button class="zu" id="bZu" title="Schließen" aria-label="Schließen">×</button>
+  </div>
+  <div class="alben" id="wAlben"></div>
+  <div class="quelle" id="quelle"></div>
+
+  <div class="gruppe">
+    <label for="fDatum">Datum</label>
+    <input type="text" id="fDatum" autocomplete="off" inputmode="numeric" placeholder="z. B. 1985">
+    <div class="tipp">1985 · 07.1985 · 12.07.1985</div>
+  </div>
+
+  <!-- Die Knöpfe stehen bewusst über dem Ortsfeld: klappt die Vorschlags-
+       liste auf, deckt sie alles darunter zu, und auf dem Tablet käme man
+       an "Weiter" und "Speichern" nicht mehr heran. -->
+  <div class="knoepfe">
+    <button class="tat" id="bWeiter">Weiter ›</button>
+    <button class="tat wichtig" id="bSpeichern">Speichern</button>
+  </div>
+  <div class="melder" id="bMelder"></div>
+
+  <div class="gruppe ortgruppe">
+    <label for="fOrt">Ort</label>
+    <input type="text" id="fOrt" autocomplete="off" placeholder="Ort suchen …">
+    <div class="vorschlaege" id="vorschlaege" hidden></div>
+    <div class="tipp" id="ortTipp">Aus der Liste wählen ergänzt das Land</div>
+  </div>
+
+  <div class="streifen" id="streifen">
+    <div class="streifenkopf">Zeitlich benachbarte Bilder</div>
+    <div class="filme" id="filme"></div>
+  </div>
+
+  <div class="knoepfe wegwerfen">
+    <button class="tat gefahr" id="bLoeschen">Bild löschen</button>
+    <button class="tat" id="bZurueckholen" hidden>Zurückholen</button>
+  </div>
+  <div class="tipp" id="loeschTipp"></div>
+</aside>
+
+<div class="schleier" id="schleier" hidden>
+  <div class="dialog">
+    <header>
+      <h3 id="dTitel">Hier auch diesen Ort eintragen?</h3>
+      <div class="unter" id="dUnter"></div>
+    </header>
+    <div class="koerper"><div class="kacheln" id="dKacheln"></div></div>
+    <footer>
+      <button id="dAlle">Alle</button>
+      <button id="dKeine">Keine</button>
+      <div class="rechts">
+        <button id="dNein">Nein danke</button>
+        <button class="wichtig" id="dJa">Übernehmen</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const p = new URLSearchParams(location.search);
+
+  const ebenen  = [$("ebeneA"), $("ebeneB")];
+  const elInfo  = $("info"), elDatum = $("datum"), elOrt = $("ort");
+  const elMeldung = $("meldung"), elPause = $("pausezeichen");
+
+  let bilder = [];        // [id, datum, ort, vonHand]
+  let dauer  = 8000;
+  let i = -1, vorne = 0, uhr = null;
+  let pausiert = false, fehler = 0, infoMarke = 0;
+  let stand = null, bearbeiten = false;
+
+  const eigeneWahl = ["modus", "dauer", "album", "nur"].some(k => p.has(k));
+  const abfrage = new URLSearchParams(p);
+  abfrage.delete("bearbeiten");
+
+  // -------------------------------------------------------------- Playlist
+
+  function ladePlaylist(erstesMal) {
+    return fetch("/api/playlist?" + abfrage.toString())
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => {
+        bilder = d.bilder;
+        dauer = d.dauer * 1000;
+        stand = d.stand;
+        // Größen aus settings.json - beim ersten Laden und nach jeder
+        // Änderung von einem anderen Gerät aus
+        if (d.info_skala)   setzeSkala("info", d.info_skala);
+        if (d.leiste_skala) setzeSkala("leiste", d.leiste_skala);
+        if (!bilder.length) {
+          elMeldung.hidden = false;
+          elMeldung.textContent = d.nur === "luecken"
+            ? "Keine Lücken mehr — bei allen Bildern stehen Datum und Ort."
+            : "Keine Bilder gefunden.";
+          return;
+        }
+        elMeldung.hidden = true;
+        if (erstesMal) {
+          i = 0;
+          // Beim Einstieg über ?bearbeiten=1 ist der Edit-Modus schon an,
+          // bevor die Playlist da ist - dann gleich dort weitermachen.
+          if (bearbeiten) zeigeZumBearbeiten(bilder[0]);
+          // Läuft schon ein Cast, darf das bloße Öffnen der Seite den
+          // Fernseher nicht weiterschalten - nur still etwas anzeigen,
+          // bis castHolen das richtige Bild nachreicht.
+          else if (castFolgen) zeige(bilder[0]);
+          else { i = -1; weiter(+1); }
+        } else if (i >= bilder.length) { i = bilder.length - 1; }
+      });
+  }
+
+  ladePlaylist(true).catch(e =>
+    { elMeldung.textContent = "Playlist nicht ladbar (" + e + ")"; });
+
+  // Blättern in der Playlist.  Im Edit-Modus läuft das Blättern
+  // stattdessen über editBlaettern, also zeitlich.
+  function weiter(richtung) {
+    clearTimeout(uhr);
+    // Im Cast-Modus blättert das Tablet den Fernseher weiter, nicht sich
+    // selbst - es zieht danach von allein nach.
+    if (castFolgen && !bearbeiten) {
+      castSteuern(richtung > 0 ? "weiter" : "zurueck");
+      return;
+    }
+    if (!bilder.length) return;
+    i = (i + richtung + bilder.length) % bilder.length;
+    zeige(bilder[i]);
+    vorladen(i);
+  }
+
+  function zeige(eintrag) {
+    const [id, datum, ort] = eintrag;
+    const hinten = ebenen[1 - vorne];
+
+    hinten.onload = () => {
+      fehler = 0;
+      ebenen[vorne].classList.remove("sichtbar");
+      hinten.classList.add("sichtbar");
+      vorne = 1 - vorne;
+      setzeInfo(datum, ort);
+      // Im Cast-Modus gibt der Fernseher den Takt vor, nicht das Tablet.
+      if (!pausiert && !bearbeiten && !castFolgen) {
+        uhr = setTimeout(() => weiter(+1), dauer);
+      }
+    };
+
+    hinten.onerror = () => {
+      if (++fehler > 25) {
+        elMeldung.hidden = false;
+        elMeldung.textContent = "Zu viele fehlende Bilder im Cache.";
+        return;
+      }
+      weiter(+1);
+    };
+
+    hinten.src = "/bild/" + id;
+  }
+
+  function setzeInfo(datum, ort) {
+    elInfo.classList.remove("sichtbar");
+    const marke = ++infoMarke;
+    setTimeout(() => {
+      if (marke !== infoMarke) return;
+      elDatum.textContent = datum || "";
+      elOrt.textContent   = ort   || "";
+      // ohne Inhalt gar keinen Kasten zeichnen
+      elInfo.classList.toggle("leer", !(datum || ort));
+      if (datum || ort) elInfo.classList.add("sichtbar");
+    }, 700);
+  }
+
+  // Kurze Rückmeldung, die von selbst wieder verschwindet.
+  let kurzUhr = null;
+  function kurz(text) {
+    const el = $("kurzmeldung");
+    el.textContent = text;
+    el.classList.add("sichtbar");
+    clearTimeout(kurzUhr);
+    kurzUhr = setTimeout(() => el.classList.remove("sichtbar"), 2600);
+  }
+
+  function vorladen(von) {
+    for (let k = 1; k <= 3; k++) {
+      const e = bilder[(von + k) % bilder.length];
+      if (e) new Image().src = "/bild/" + e[0];
+    }
+  }
+
+  function pauseUmschalten() {
+    if (bearbeiten) return;
+    // Im Cast-Modus hält der Fernseher an, und das Tablet zieht nach
+    if (castFolgen) { castSteuern("pause"); regen(); return; }
+    pausiert = !pausiert;
+    elPause.classList.toggle("an", pausiert);
+    $("kPause").textContent = pausiert ? "▶" : "⏸";
+    $("kPause").title = pausiert ? "Weiter" : "Pause";
+    if (pausiert) clearTimeout(uhr);
+    else uhr = setTimeout(() => weiter(+1), dauer);
+    // erst hier, damit die Ruhefrist zum neuen Zustand passt
+    regen();
+  }
+
+  setInterval(() => {
+    if (eigeneWahl || bearbeiten) return;
+    fetch("/api/stand").then(r => r.json()).then(d => {
+      if (stand !== null && d.stand !== stand) ladePlaylist(false);
+    }).catch(() => {});
+  }, 30000);
+
+  // ------------------------------------------------------------ Edit-Modus
+
+  let aktuellesFoto = null;
+  let startDatum = "", startOrt = "";
+  let umgebung = {vorher: [], nachher: []};
+
+  function geaendert() {
+    return aktuellesFoto
+        && ($("fDatum").value.trim() !== startDatum
+            || $("fOrt").value.trim() !== startOrt);
+  }
+
+  function bearbeitenUmschalten(an) {
+    bearbeiten = an === undefined ? !bearbeiten : an;
+    document.body.classList.toggle("bearbeiten", bearbeiten);
+    if (bearbeiten) {
+      clearTimeout(uhr);
+      pausiert = false;
+      elPause.classList.remove("an");
+      // Genau das Bild bearbeiten, das gerade zu sehen ist - im Cast-Modus
+      // also das vom Fernseher, auch wenn es nicht in der eigenen Playlist
+      // steht.
+      if (castFolgen && cast && cast.bild) {
+        zeigeZumBearbeiten([...cast.bild, 0]);
+      } else if (bilder.length) {
+        zeigeZumBearbeiten(bilder[i]);
+      }
+    } else {
+      versteckeVorschlaege();
+      // Slideshow läuft sofort weiter, an der Stelle der Playlist
+      if (bilder.length) weiter(+1);
+    }
+  }
+
+  // Im Edit-Modus wird zeitlich geblättert, nicht nach Playlist - im
+  // Zufallsmodus wäre der Nachbar sonst ohne jeden Zusammenhang.
+  function zeigeZumBearbeiten(eintrag) {
+    clearTimeout(uhr);
+    zeige(eintrag);
+    fuelleWerkbank(eintrag[0]);
+  }
+
+  function editBlaettern(richtung) {
+    const ziel = richtung > 0
+      ? umgebung.nachher[0]
+      : umgebung.vorher[umgebung.vorher.length - 1];
+    if (!ziel) {
+      const m = $("bMelder");
+      m.textContent = richtung > 0 ? "Kein neueres Bild." : "Kein älteres Bild.";
+      m.className = "melder";
+      return;
+    }
+    zeigeZumBearbeiten([ziel.id, ziel.datum, ziel.ort, 0]);
+  }
+
+  // "Weiter" mit Rückfrage, wenn etwas im Feld steht, das noch nicht
+  // gespeichert ist
+  function weiterMitRueckfrage() {
+    if (geaendert()) {
+      if (confirm("Änderungen speichern?")) { speichere(true); return; }
+    }
+    editBlaettern(+1);
+  }
+
+  function fuelleWerkbank(id) {
+    aktuellesFoto = null;
+    $("bMelder").textContent = "";
+    fetch("/api/foto/" + id).then(r => r.json()).then(f => {
+      aktuellesFoto = f;
+
+      // Albennamen sind anklickbar: wer nichts hat, nimmt den Albumnamen
+      // als Ort - besser als gar nichts.
+      $("wAlben").innerHTML = "";
+      for (const a of (f.alben || [])) {
+        const s = document.createElement("span");
+        s.textContent = a;                     // textContent, nie innerHTML
+        s.title = "Als Ort übernehmen";
+        s.onclick = () => albumAlsOrt(a);
+        $("wAlben").appendChild(s);
+      }
+      $("quelle").textContent = f.filename || ("Bild " + f.id);
+
+      // Felder mit dem vorbelegen, was gerade gilt - egal ob aus dem
+      // Import oder von Hand.  Gespeichert wird nachher nur, was sich
+      // wirklich geändert hat.
+      startDatum = f.feld_datum || "";
+      startOrt   = f.feld_ort || "";
+      $("fDatum").value = startDatum;
+      $("fOrt").value = startOrt;
+
+      if (startOrt) {
+        ortWahl = {ort: startOrt, land: f.feld_land || "", cc: f.feld_cc || ""};
+        $("ortTipp").textContent = f.feld_land
+          ? "Land: " + f.feld_land : "Aus der Liste wählen ergänzt das Land";
+      } else if (f.vorschlag_ort && f.vorschlag_ort.ort) {
+        // Vorschlag aus dem ersten Album.  startOrt bleibt leer, damit er
+        // als Änderung zählt und beim Speichern wirklich landet.
+        const v = f.vorschlag_ort;
+        ortWahl = {ort: v.ort, land: v.land || "", cc: v.cc || ""};
+        $("fOrt").value = v.ort;
+        $("ortTipp").textContent = "Vorschlag aus dem Albumnamen"
+          + (v.land ? " · " + v.land : "");
+      } else {
+        ortWahl = null;
+        $("ortTipp").textContent = "Aus der Liste wählen ergänzt das Land";
+      }
+
+      zeigeLoeschstand(!!f.geloescht);
+    });
+
+    fetch(`/api/foto/${id}/umgebung?n=4`).then(r => r.json()).then(u => {
+      umgebung = u;
+      zeichneStreifen(id, u);
+    });
+  }
+
+  function zeichneStreifen(id, u) {
+    const ziel = $("filme");
+    ziel.innerHTML = "";
+    const alle = [...u.vorher, {id, jetzt: true}, ...u.nachher];
+    for (const e of alle) {
+      const f = document.createElement("figure");
+      if (e.jetzt) f.className = "jetzt";
+      const img = document.createElement("img");
+      img.src = "/vorschau/" + e.id; img.loading = "lazy"; img.alt = "";
+      f.appendChild(img);
+      if (e.jetzt) {
+        const punkt = document.createElement("div");
+        punkt.className = "punkt";
+        f.appendChild(punkt);
+      }
+      const c = document.createElement("figcaption");
+      c.textContent = e.jetzt ? "dieses" : (e.ort || e.datum || "—");
+      c.title = [e.datum, e.ort].filter(Boolean).join(" · ");
+      f.appendChild(c);
+      if (!e.jetzt) {
+        f.onclick = () => zeigeZumBearbeiten([e.id, e.datum, e.ort, 0]);
+      }
+      ziel.appendChild(f);
+    }
+    const jetzt = ziel.querySelector(".jetzt");
+    if (jetzt) jetzt.scrollIntoView({block: "nearest", inline: "center"});
+  }
+
+  // Ortssuche
+  let ortWahl = null, suchUhr = null, markiert = -1;
+  const elVor = $("vorschlaege");
+
+  $("fOrt").addEventListener("input", () => {
+    ortWahl = null;
+    $("ortTipp").textContent = "Aus der Liste wählen ergänzt das Land";
+    clearTimeout(suchUhr);
+    const q = $("fOrt").value.trim();
+    if (q.length < 2) { versteckeVorschlaege(); return; }
+    suchUhr = setTimeout(() => {
+      fetch("/api/ortsuche?q=" + encodeURIComponent(q))
+        .then(r => r.json()).then(zeigeVorschlaege);
+    }, 200);
+  });
+
+  function zeigeVorschlaege(liste) {
+    elVor.innerHTML = "";
+    markiert = -1;
+    if (!liste.length) { versteckeVorschlaege(); return; }
+    for (const v of liste) {
+      const d = document.createElement("div");
+      d.appendChild(document.createTextNode(v.ort + " "));
+      const l = document.createElement("span");
+      l.className = "land";
+      // Art und Region mit anzeigen - sonst sehen die vier "Oregon" gleich
+      // aus, und der Bundesstaat wäre von ihnen nicht zu unterscheiden
+      const teile = [];
+      if (v.art && v.art !== "Ort") teile.push(v.art);
+      if (v.region) teile.push(v.region);
+      if (v.land || v.cc) teile.push(v.land || v.cc);
+      l.textContent = teile.join(", ");
+      d.appendChild(l);
+      d.onclick = () => waehleOrt(v);
+      elVor.appendChild(d);
+    }
+    elVor.hidden = false;
+  }
+
+  function versteckeVorschlaege() { elVor.hidden = true; markiert = -1; }
+
+  function albumAlsOrt(album) {
+    fetch("/api/album-als-ort?album=" + encodeURIComponent(album))
+      .then(r => r.json()).then(v => {
+        if (!v || !v.ort) return;
+        ortWahl = {ort: v.ort, land: v.land || "", cc: v.cc || ""};
+        $("fOrt").value = v.ort;
+        $("ortTipp").textContent = "Aus dem Album" +
+          (v.quelle ? ` (${v.quelle})` : "") + (v.land ? " · " + v.land : "");
+        versteckeVorschlaege();
+      });
+  }
+
+  function waehleOrt(v) {
+    ortWahl = v;
+    $("fOrt").value = v.ort;
+    $("ortTipp").textContent = "Land: " + (v.land || v.cc || "—");
+    versteckeVorschlaege();
+  }
+
+  // dannWeiter=true  -> zeitlich nächstes Bild bearbeiten
+  // dannWeiter=false -> Bearbeiten schließen, Slideshow läuft weiter
+  function speichere(dannWeiter) {
+    if (!aktuellesFoto) return;
+    const foto = aktuellesFoto;
+    const fertig = () => dannWeiter ? editBlaettern(+1)
+                                    : bearbeitenUmschalten(false);
+    const dNeu = $("fDatum").value.trim();
+    const oNeu = $("fOrt").value.trim();
+
+    // nur geänderte Felder schicken - sonst würde jedes Durchblättern
+    // den Importwert als Handeintrag verewigen
+    const koerper = {};
+    if (dNeu !== startDatum) koerper.datum = dNeu;
+    if (oNeu !== startOrt) {
+      koerper.ort = oNeu;
+      if (ortWahl) { koerper.land = ortWahl.land; koerper.cc = ortWahl.cc; }
+    }
+    const m = $("bMelder");
+    if (!Object.keys(koerper).length) {
+      m.textContent = "Nichts geändert.";
+      m.className = "melder";
+      fertig();
+      return;
+    }
+
+    fetch("/api/foto/" + foto.id, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(koerper),
+    }).then(r => r.json().then(a => ({ok: r.ok, a}))).then(({ok, a}) => {
+      if (!ok) { m.textContent = a.fehler || "Fehler."; m.className = "melder schlecht"; return; }
+      m.textContent = "Gespeichert."; m.className = "melder gut";
+      startDatum = dNeu; startOrt = oNeu;
+      const eintrag = bilder.find(b => b[0] === foto.id);
+      if (eintrag) { eintrag[1] = a.datum; eintrag[2] = a.ort; eintrag[3] = 1; }
+      if (bilder[i] && bilder[i][0] === foto.id) setzeInfo(a.datum, a.ort);
+
+      // Ort neu vergeben und das Album hat noch mehr Bilder ohne Ort?
+      const ortNeu = koerper.ort && !foto.hatte_ort;
+      if (ortNeu) fragenachAlbum(foto, oNeu, ortWahl, fertig);
+      else fertig();
+    }).catch(() => {
+      m.textContent = "Speichern fehlgeschlagen."; m.className = "melder schlecht";
+    });
+  }
+
+  $("bSpeichern").onclick = () => speichere(false);   // speichert und schließt
+  $("bWeiter").onclick = weiterMitRueckfrage;
+  $("bZu").onclick = () => bearbeitenUmschalten(false);
+
+  // ------------------------------------------------- Ort aufs Album übernehmen
+
+  let dAuswahl = new Set(), dOrt = null, dFertig = null;
+
+  function fragenachAlbum(foto, ort, wahl, fertig) {
+    dFertig = fertig;
+    fetch(`/api/foto/${foto.id}/album-ohne-ort?limit=50`)
+      .then(r => r.json()).then(liste => {
+        if (!liste.length) { erledige(); return; }
+        dOrt = {ort, land: wahl ? wahl.land : "", cc: wahl ? wahl.cc : ""};
+        dAuswahl = new Set(liste.map(x => x.id));      // erst mal alle
+        const alben = (foto.alben || []).join(", ");
+        $("dUnter").textContent =
+          `${liste.length} weitere Bilder ${alben ? "aus " + alben : ""} haben `
+          + `noch keinen Ort. Ausgewählte bekommen „${ort}“.`;
+        const k = $("dKacheln");
+        k.innerHTML = "";
+        for (const b of liste) {
+          const f = document.createElement("figure");
+          f.className = "an";
+          f.dataset.id = b.id;
+          const img = document.createElement("img");
+          img.src = "/vorschau/" + b.id; img.loading = "lazy"; img.alt = "";
+          const h = document.createElement("div");
+          h.className = "haken"; h.textContent = "✓";
+          f.append(img, h);
+          f.onclick = () => {
+            if (dAuswahl.has(b.id)) { dAuswahl.delete(b.id); f.classList.remove("an"); }
+            else { dAuswahl.add(b.id); f.classList.add("an"); }
+            zaehleDialog();
+          };
+          k.appendChild(f);
+        }
+        zaehleDialog();
+        $("schleier").hidden = false;
+      });
+  }
+
+  function zaehleDialog() {
+    $("dJa").textContent = dAuswahl.size
+      ? `Für ${dAuswahl.size} Bilder übernehmen` : "Übernehmen";
+    $("dJa").disabled = !dAuswahl.size;
+  }
+
+  function dialogZu() { $("schleier").hidden = true; dAuswahl.clear(); dOrt = null; }
+
+  // erst den Dialog wegräumen, dann das tun, was nach dem Speichern
+  // ohnehin dran war (weiterblättern oder Bearbeiten schließen)
+  function erledige() {
+    dialogZu();
+    const f = dFertig; dFertig = null;
+    if (f) f();
+  }
+
+  $("dNein").onclick = erledige;
+
+  function alleKacheln(an) {
+    dAuswahl.clear();
+    for (const f of $("dKacheln").children) {
+      f.classList.toggle("an", an);
+      if (an) dAuswahl.add(parseInt(f.dataset.id, 10));
+    }
+    zaehleDialog();
+  }
+  $("dAlle").onclick  = () => alleKacheln(true);
+  $("dKeine").onclick = () => alleKacheln(false);
+
+  $("dJa").onclick = () => {
+    if (!dOrt || !dAuswahl.size) return;
+    fetch("/api/orte-uebernehmen", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ids: [...dAuswahl], ...dOrt}),
+    }).then(r => r.json()).then(a => {
+      const m = $("bMelder");
+      m.textContent = `Ort für ${a.anzahl} weitere Bilder übernommen.`;
+      m.className = "melder gut";
+      ladePlaylist(false);
+      erledige();
+    });
+  };
+
+  // ---------------------------------------------------------- Wegwerfen
+
+  function zeigeLoeschstand(weg) {
+    $("bLoeschen").hidden = weg;
+    $("bZurueckholen").hidden = !weg;
+    $("loeschTipp").textContent = weg
+      ? "Liegt im Papierkorb — wird auch nach einem erneuten Takeout nicht "
+        + "mehr angezeigt."
+      : "Wandert in den Papierkorb. Die Originaldatei bleibt unangetastet.";
+  }
+
+  // Ohne Rückfrage: der Papierkorb ist die Rückfrage.  Wer sich vertut,
+  // holt das Bild unter /papierkorb zurück - die Originaldatei ist ohnehin
+  // nie in Gefahr.
+  function loesche(id) {
+    if (!id) return;
+    fetch(`/api/foto/${id}/loeschen`, {method: "POST"})
+      .then(r => r.json()).then(a => {
+        if (!a.ok) return;
+        stand = a.stand;
+        kurz("In Papierkorb verschoben");
+        const n = bilder.findIndex(b => b[0] === id);
+        if (n >= 0) { bilder.splice(n, 1); if (n < i) i--; }
+        // im Edit-Modus zeitlich weiter, sonst durch die Playlist
+        if (bearbeiten) {
+          if (aktuellesFoto && aktuellesFoto.id === id) editBlaettern(+1);
+          return;
+        }
+        if (!bilder.length) {
+          elMeldung.hidden = false;
+          elMeldung.textContent = "Keine Bilder mehr in dieser Auswahl.";
+          return;
+        }
+        i = (i - 1 + bilder.length) % bilder.length;   // weiter() zählt hoch
+        weiter(+1);
+      })
+      .catch(() => kurz("Löschen fehlgeschlagen"));
+  }
+
+  // Was gerade zu sehen ist: im Edit-Modus das Bild in der Werkbank,
+  // sonst das aus der Playlist.
+  function sichtbaresBild() {
+    if (bearbeiten) return aktuellesFoto ? aktuellesFoto.id : null;
+    if (castFolgen && castBildId) return castBildId;
+    return bilder[i] ? bilder[i][0] : null;
+  }
+
+  $("bLoeschen").onclick = () => loesche(sichtbaresBild());
+
+  $("bZurueckholen").onclick = () => {
+    if (!aktuellesFoto) return;
+    fetch(`/api/foto/${aktuellesFoto.id}/zurueckholen`, {method: "POST"})
+      .then(r => r.json()).then(a => {
+        stand = a.stand;
+        zeigeLoeschstand(false);
+        const m = $("bMelder");
+        m.textContent = "Zurückgeholt."; m.className = "melder gut";
+      });
+  };
+
+  // ------------------------------------------------------------ Fernseher
+
+  // Läuft die Ausgabe an einen Chromecast, zeigt das Tablet dasselbe Bild
+  // wie der Fernseher, und Wischen blättert dort weiter.  Das ist der Sinn
+  // der Sache: Wer beim Frühstück ein Bild ohne Datum sieht, greift zum
+  // Tablet und hat es schon vor sich — ohne zurückzusuchen.
+  let cast = null;            // letzter Stand vom Server
+  let castFolgen = false;
+  let castVerlassen = false;  // von Hand abgewählt, dann nicht wieder anspringen
+  let castBildId = null;
+
+  function castHolen() {
+    return fetch("/api/cast").then(r => r.json()).then(c => {
+      cast = c;
+      $("kCast").hidden = !c.an;
+      $("kCast").style.opacity = castFolgen ? "1" : ".45";
+      const soll = c.an && !castVerlassen;
+      if (soll !== castFolgen) castModus(soll);
+      if (!castFolgen) return;
+      // Im Edit-Modus nicht mitziehen - sonst springt einem das Bild
+      // unter den Fingern weg, während man es beschriftet.
+      if (!bearbeiten && c.bild) zeigeCastBild(c.bild);
+      pausiert = !!c.pausiert;
+      elPause.classList.toggle("an", pausiert);
+      $("kPause").textContent = pausiert ? "▶" : "⏸";
+      $("kPause").title = pausiert ? "Weiter" : "Pause";
+    }).catch(() => {});
+  }
+
+  function castModus(an) {
+    castFolgen = an;
+    clearTimeout(uhr);
+    $("kCast").style.opacity = an ? "1" : ".45";
+    if (an) {
+      kurz("Folgt dem Fernseher");
+    } else {
+      castBildId = null;
+      kurz("Eigene Anzeige");
+      if (bilder.length && !bearbeiten) weiter(+1);
+    }
+  }
+
+  function zeigeCastBild(b) {
+    if (b[0] === castBildId) return;
+    castBildId = b[0];
+    clearTimeout(uhr);
+    // Den eigenen Zeiger mitziehen, damit Bearbeiten und Löschen passen
+    const k = bilder.findIndex(x => x[0] === b[0]);
+    if (k >= 0) i = k;
+    zeige([b[0], b[1] || "", b[2] || "", 0]);
+  }
+
+  function castSteuern(was, id) {
+    return fetch("/api/cast/steuern", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({was, id}),
+    }).then(r => r.json()).then(c => {
+      if (c.fehler) { kurz(c.fehler); return; }
+      // Der Befehl greift erst beim nächsten Schlag der Schleife, deshalb
+      // kurz darauf noch einmal nachfragen.
+      setTimeout(castHolen, 700);
+    }).catch(() => kurz("Fernseher antwortet nicht"));
+  }
+
+  $("kCast").onclick = ev => {
+    ev.stopPropagation();
+    castVerlassen = castFolgen;      // beim Einschalten wieder freigeben
+    castModus(!castFolgen);
+  };
+
+  castHolen();
+  setInterval(castHolen, 3000);
+
+  // ----------------------------------------------------------- Größe ziehen
+
+  // Beschriftung und Bedienleiste lassen sich mit der Maus größer und
+  // kleiner ziehen.  Der Wert landet in settings.json und gilt danach auf
+  // jedem Gerät, das die Slideshow zeigt.
+  const skala = {info: 1, leiste: 1};
+  let merkUhr = null;
+
+  function setzeSkala(welche, wert) {
+    wert = Math.max(0.4, Math.min(4, wert));
+    skala[welche] = wert;
+    document.documentElement.style.setProperty(
+      "--" + welche + "-skala", wert.toFixed(3));
+  }
+
+  // Beim Ziehen fallen Dutzende Zwischenwerte an - gespeichert wird erst,
+  // wenn die Hand einen Moment still war.
+  function merkeSkala(welche) {
+    clearTimeout(merkUhr);
+    merkUhr = setTimeout(() => {
+      const koerper = {};
+      koerper[welche + "_skala"] = skala[welche];
+      fetch("/api/einstellungen", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(koerper),
+      }).then(r => r.json())
+        .then(a => { if (a.stand) stand = a.stand; })
+        .catch(() => {});
+    }, 500);
+  }
+
+  // richtung sagt, in welche Richtung "größer" liegt: die Beschriftung
+  // klebt unten links, die Leiste unten rechts.
+  function ziehbar(el, welche, richtung, beiTipp) {
+    let start = null;
+    el.addEventListener("pointerdown", ev => {
+      if (ev.button) return;                       // nur die linke Taste
+      if (ev.target.closest("button, a")) return;  // Knopf bleibt Knopf
+      start = {x: ev.clientX, y: ev.clientY, wert: skala[welche], zog: false};
+      try { el.setPointerCapture(ev.pointerId); } catch (e) {}
+      ev.preventDefault();
+    });
+    el.addEventListener("pointermove", ev => {
+      if (!start) return;
+      const d = (ev.clientX - start.x) * richtung[0]
+              + (ev.clientY - start.y) * richtung[1];
+      if (!start.zog && Math.abs(d) < 5) return;   // Wackeln ist kein Ziehen
+      start.zog = true;
+      regen();
+      setzeSkala(welche, start.wert * (1 + d / 260));
+    });
+    const ende = ev => {
+      if (!start) return;
+      const zog = start.zog;
+      start = null;
+      try { el.releasePointerCapture(ev.pointerId); } catch (e) {}
+      if (zog) {
+        merkeSkala(welche);
+        kurz(Math.round(skala[welche] * 100) + " %");
+      } else if (beiTipp && !ev.target.closest("button, a")) {
+        beiTipp();
+      }
+    };
+    el.addEventListener("pointerup", ende);
+    el.addEventListener("pointercancel", ende);
+  }
+
+  // Ein schlichter Tipp auf die Beschriftung soll weiter pausieren, wie
+  // jeder Tipp aufs Bild.  Am Rand der Leiste passiert dagegen nichts -
+  // dort war bisher auch nichts.
+  ziehbar($("info"), "info", [1, -1], () => pauseUmschalten());
+  ziehbar($("leistezone"), "leiste", [-1, -1], null);
+
+  // -------------------------------------------------------------- Bedienung
+
+  $("kZurueck").onclick = ev => { ev.stopPropagation(); weiter(-1); };
+  $("kVor").onclick     = ev => { ev.stopPropagation(); weiter(+1); };
+  $("kPause").onclick   = ev => { ev.stopPropagation(); pauseUmschalten(); };
+  $("kEdit").onclick    = ev => { ev.stopPropagation(); bearbeitenUmschalten(true); };
+  $("kVoll").onclick    = ev => {
+    ev.stopPropagation();
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  };
+
+  const tippt = () => {
+    const a = document.activeElement;
+    return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA");
+  };
+
+  document.addEventListener("keydown", ev => {
+    if (!$("schleier").hidden) {
+      if (ev.key === "Escape") erledige();
+      return;
+    }
+    if (tippt()) {
+      if (ev.key === "Enter") { ev.preventDefault(); speichere(false); }
+      else if (ev.key === "Escape") document.activeElement.blur();
+      return;
+    }
+    if (ev.key === " ")               { ev.preventDefault(); pauseUmschalten(); }
+    else if (ev.key === "Delete")     { ev.preventDefault(); loesche(sichtbaresBild()); }
+    // im Edit-Modus zeitlich blättern, sonst durch die Playlist
+    else if (ev.key === "ArrowRight") bearbeiten ? editBlaettern(+1) : weiter(+1);
+    else if (ev.key === "ArrowLeft")  bearbeiten ? editBlaettern(-1) : weiter(-1);
+    else if (ev.key === "Escape")     bearbeitenUmschalten(false);
+    else if (ev.key.toLowerCase() === "e") bearbeitenUmschalten();
+    else if (ev.key.toLowerCase() === "f") {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    }
+  });
+
+  $("fOrt").addEventListener("keydown", ev => {
+    const eintraege = [...elVor.children];
+    if (elVor.hidden || !eintraege.length) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      markiert += ev.key === "ArrowDown" ? 1 : -1;
+      markiert = (markiert + eintraege.length) % eintraege.length;
+      eintraege.forEach((e, n) => e.classList.toggle("aktiv", n === markiert));
+    } else if (ev.key === "Enter" && markiert >= 0) {
+      ev.preventDefault(); eintraege[markiert].click();
+    } else if (ev.key === "Escape") {
+      ev.stopPropagation(); versteckeVorschlaege();
+    }
+  });
+
+  // Tippen aufs Bild pausiert und holt die Bedienleiste hervor. Bis man
+  // unten auf den Pause-Knopf trifft, ist das Bild oft schon weiter.
+  // .info und .leistezone regeln ihren Tipp selbst (siehe ziehbar) - sonst
+  // würde ein Ziehen am Ende auch noch pausieren.
+  document.addEventListener("click", ev => {
+    if (ev.target.closest(".werkbank") || ev.target.closest(".leistezone")
+        || ev.target.closest(".dialog") || ev.target.closest(".info")) return;
+    regen();
+    pauseUmschalten();
+  });
+
+  // Wischen zum Blättern
+  let tipX = null, tipY = null;
+  document.addEventListener("touchstart", ev => {
+    if (ev.touches.length !== 1) return;
+    // auf den ziehbaren Flächen ist die Wischgeste das Größerziehen
+    if (ev.target.closest(".info") || ev.target.closest(".leistezone")) return;
+    tipX = ev.touches[0].clientX; tipY = ev.touches[0].clientY;
+  }, {passive: true});
+  document.addEventListener("touchend", ev => {
+    if (tipX === null || !ev.changedTouches.length) return;
+    if (bearbeiten || !$("schleier").hidden) { tipX = null; return; }
+    const dx = ev.changedTouches[0].clientX - tipX;
+    const dy = ev.changedTouches[0].clientY - tipY;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      weiter(dx < 0 ? +1 : -1);
+    }
+    tipX = null;
+  }, {passive: true});
+
+  // Mauszeiger und Bedienleiste nach Ruhe ausblenden.  Im Pausenzustand
+  // deutlich später: wer angehalten hat, will meist noch etwas tun, und
+  // nach vier Sekunden ist die Leiste weg, bevor die Hand da ist.
+  const RUHE_LAEUFT = 4000, RUHE_PAUSE = 30000;
+  let ruheUhr = null;
+  function regen() {
+    document.body.classList.remove("ruhe");
+    clearTimeout(ruheUhr);
+    ruheUhr = setTimeout(() => document.body.classList.add("ruhe"),
+                         pausiert ? RUHE_PAUSE : RUHE_LAEUFT);
+  }
+  document.addEventListener("mousemove", regen);
+  document.addEventListener("touchstart", regen, {passive: true});
+
+  // Bildschirm wach halten (Bilderrahmen-Betrieb)
+  async function wachHalten() {
+    if (!("wakeLock" in navigator)) return;
+    try { await navigator.wakeLock.request("screen"); }
+    catch (e) { /* ohne Vollbild oder https nicht immer erlaubt */ }
+  }
+  wachHalten();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") wachHalten();
+  });
+
+  // Beim Start die Bedienleiste kurz zeigen - auf dem Tablet sieht man
+  // sonst nicht, dass es sie gibt.
+  regen();
+
+  if (p.get("bearbeiten") === "1") bearbeitenUmschalten(true);
+})();
+</script>
+</body>
+</html>

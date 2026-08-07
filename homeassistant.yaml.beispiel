@@ -1,0 +1,41 @@
+# Fotoserver in HomeAssistant einbinden.
+#
+# HomeAssistant schaltet den Cast-Dongle morgens ein und nach dem Fruehstueck
+# wieder aus.  Statt dass der Fotoserver alle paar Minuten ins Leere sucht,
+# sagt HomeAssistant ihm einfach Bescheid.
+#
+# In die configuration.yaml uebernehmen und HomeAssistant neu laden.
+# Die IP unten anpassen, falls der Rechner eine andere bekommt - besser
+# gleich eine feste Adresse in der Fritzbox vergeben.
+
+rest_command:
+  fotoserver_cast_an:
+    url: "http://FOTOSERVER-IP:8080/api/cast/wecken"
+    method: POST
+    timeout: 10
+
+  fotoserver_cast_aus:
+    url: "http://FOTOSERVER-IP:8080/api/cast/wecken?an=0"
+    method: POST
+    timeout: 10
+
+automation:
+  # Der Dongle haengt am Strom - sobald er da ist, kann gesendet werden.
+  # Die zwanzig Sekunden Verzoegerung geben ihm Zeit zum Hochfahren; ohne
+  # sie sucht der Fotoserver ein Geraet, das noch gar nicht im Netz ist.
+  - alias: "Fotoserver: Bilder auf den Kuechenbildschirm"
+    trigger:
+      - platform: state
+        entity_id: switch.kuechen_dongle      # <- eigene Entitaet eintragen
+        to: "on"
+        for: "00:00:20"
+    action:
+      - service: rest_command.fotoserver_cast_an
+
+  - alias: "Fotoserver: Bilder beenden"
+    trigger:
+      - platform: state
+        entity_id: switch.kuechen_dongle      # <- eigene Entitaet eintragen
+        to: "off"
+    action:
+      - service: rest_command.fotoserver_cast_aus
