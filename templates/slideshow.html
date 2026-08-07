@@ -960,11 +960,22 @@
 
   function castHolen() {
     return fetch("/api/cast").then(r => r.json()).then(c => {
+      const warVerbunden = cast && cast.verbunden;
       cast = c;
       $("kCast").hidden = !c.an;
-      $("kCast").style.opacity = castFolgen ? "1" : ".45";
-      const soll = c.an && !castVerlassen;
-      if (soll !== castFolgen) castModus(soll);
+      $("kCast").title = c.verbunden
+        ? "Dem Fernseher folgen" : "Fernseher nicht verfügbar";
+      $("kCast").style.opacity = castFolgen ? "1" : (c.verbunden ? ".45" : ".2");
+      // Nur folgen, wenn wirklich eine Verbindung steht.  Wird der Dongle
+      // mitten im Betrieb ausgeschaltet, bleibt "an" stehen, aber es kommt
+      // kein Bild mehr - dann hinge das Tablet auf dem letzten Bild fest.
+      const soll = c.an && c.verbunden && !castVerlassen;
+      if (soll !== castFolgen) {
+        if (!soll && warVerbunden && c.an) {
+          kurz("Fernseher nicht mehr erreichbar");
+        }
+        castModus(soll);
+      }
       if (!castFolgen) return;
       // Im Edit-Modus nicht mitziehen - sonst springt einem das Bild
       // unter den Fingern weg, während man es beschriftet.
@@ -1000,6 +1011,11 @@
   }
 
   function castSteuern(was, id) {
+    if (!(cast && cast.verbunden)) {
+      kurz("Fernseher nicht verfügbar");
+      castModus(false);              // zurück auf die eigene Anzeige
+      return Promise.resolve();
+    }
     return fetch("/api/cast/steuern", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -1014,6 +1030,12 @@
 
   $("kCast").onclick = ev => {
     ev.stopPropagation();
+    // Steht keine Verbindung, gäbe es nichts zu folgen - dann lieber sagen,
+    // woran es liegt, als in einen Modus schalten, in dem nichts passiert.
+    if (!castFolgen && !(cast && cast.verbunden)) {
+      kurz("Fernseher nicht verfügbar");
+      return;
+    }
     castVerlassen = castFolgen;      // beim Einschalten wieder freigeben
     castModus(!castFolgen);
   };

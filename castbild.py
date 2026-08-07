@@ -25,25 +25,51 @@ SCHRIFT_FETT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 # Die Slideshow rechnet in vmin (3vmin fuer das Datum, 2.3vmin fuer den Ort).
 # Bei 1080 Bildhoehe sind das 32 bzw. 25 Pixel - am Fruehstueckstisch, zwei
-# bis drei Meter vom Fernseher weg, viel zu klein.  Der Faktor gilt fuer
-# beide Zeilen; feinjustiert wird ueber die Einstellung "cast_skala", die
-# hier als multiplikator ankommt.
-FERN_FAKTOR = 4.8
+# bis drei Meter vom Bildschirm weg, viel zu klein.
+#
+# Bei skala = 1.0 stoesst der Kasten genau an MAX_ANTEIL; groesser wird er
+# nie, egal was eingestellt ist.  Ein Viertel des Bildes ist die Grenze, ab
+# der die Beschriftung anfaengt, das Foto zu verdecken statt es zu erklaeren.
+MAX_ANTEIL = 0.25
+FERN_FAKTOR = 2.9
+
 RAND = round(HOEHE * 0.03)          # Abstand zum Bildrand, wie --rand: 3vmin
 ECKE_ANTEIL = 0.09                  # Eckenradius, bezogen auf die Datumszeile
 
+ANTEIL_DATUM = 0.030                # Schriftgroessen, bezogen auf die Hoehe
+ANTEIL_ORT = 0.023
+ZEILE = 1.32                        # Zeilenabstand
+POLSTER_X_ANTEIL = 0.42             # Luft im Kasten, bezogen auf die Datumszeile
+POLSTER_Y_ANTEIL = 0.26
 
-def _masse(skala):
-    """Schriftgroessen und Polster zur gewuenschten Skala.
 
-    Das Polster waechst mit: bei 150-px-Schrift saehen 14 px Luft aus wie
-    ein Versehen.
+def _masse(skala, hat_datum, hat_ort):
+    """Schriftgroessen und Polster - schon auf MAX_ANTEIL gedeckelt.
+
+    Die Kastenhoehe ist ein festes Vielfaches der Datumsschrift; welches,
+    haengt daran, ob eine oder zwei Zeilen darin stehen.  Deshalb laesst
+    sich die groesste erlaubte Schrift ausrechnen, statt hinterher zu
+    beschneiden.  Das Polster waechst mit: bei 100-px-Schrift saehen 14 px
+    Luft aus wie ein Versehen.
     """
-    faktor = FERN_FAKTOR * skala
-    datum = round(HOEHE * 0.030 * faktor)
-    ort = round(HOEHE * 0.023 * faktor)
-    return datum, ort, round(datum * 0.42), round(datum * 0.26), \
-        round(datum * ECKE_ANTEIL)
+    vielfaches = 2 * POLSTER_Y_ANTEIL
+    if hat_datum:
+        vielfaches += ZEILE
+    if hat_ort:
+        vielfaches += ZEILE * (ANTEIL_ORT / ANTEIL_DATUM)
+
+    gewuenscht = HOEHE * ANTEIL_DATUM * FERN_FAKTOR * skala
+    erlaubt = HOEHE * MAX_ANTEIL / vielfaches
+    return min(gewuenscht, erlaubt)
+
+
+def _aus_basis(basis):
+    """-> (Datum, Ort, Polster x, Polster y, Ecke)"""
+    return (round(basis),
+            round(basis * ANTEIL_ORT / ANTEIL_DATUM),
+            round(basis * POLSTER_X_ANTEIL),
+            round(basis * POLSTER_Y_ANTEIL),
+            round(basis * ECKE_ANTEIL))
 
 _schriften = {}
 
@@ -74,7 +100,7 @@ def _kasten_zeichnen(leinwand, zeilen, polster_x, polster_y, ecke):
                       gr, pfad))
 
     text_breite = max(m[0] for m in masse)
-    zeilen_hoehe = [round(m[3] * 1.32) for m in masse]
+    zeilen_hoehe = [round(m[3] * ZEILE) for m in masse]
     text_hoehe = sum(zeilen_hoehe)
 
     b = min(text_breite + 2 * polster_x, BREITE - 2 * RAND)
@@ -109,7 +135,6 @@ def _kasten_zeichnen(leinwand, zeilen, polster_x, polster_y, ecke):
 
 def aufbereiten(quelle, datum="", ort="", skala=1.0):
     """Foto auf 1920x1080 setzen und beschriften -> PIL-Bild."""
-    gr_datum, gr_ort, polster_x, polster_y, ecke = _masse(skala)
     leinwand = Image.new("RGB", (BREITE, HOEHE), (0, 0, 0))
     with Image.open(quelle) as foto:
         foto = foto.convert("RGB")
@@ -118,15 +143,32 @@ def aufbereiten(quelle, datum="", ort="", skala=1.0):
         leinwand.paste(foto, ((BREITE - foto.width) // 2,
                               (HOEHE - foto.height) // 2))
 
-    zeilen = []
-    if datum:
-        zeilen.append((datum, gr_datum, SCHRIFT_FETT))
-    if ort:
-        zeilen.append((ort, gr_ort, SCHRIFT))
     # Ohne Datum und ohne Ort gar keinen Kasten zeichnen - genau wie im
     # Browser, sonst faellt jedes Bild ohne Angaben unangenehm auf.
-    if zeilen:
-        _kasten_zeichnen(leinwand, zeilen, polster_x, polster_y, ecke)
+    if not (datum or ort):
+        return leinwand
+
+    messer = ImageDraw.Draw(leinwand)
+    basis = _masse(skala, bool(datum), bool(ort))
+
+    # Die Hoehe ist damit gedeckelt, die Breite noch nicht: "Torroella de
+    # Montgri, Spanien" ist dreimal so lang wie "Bremen".  Passt es nicht,
+    # ein Stueck verkleinern und noch einmal messen.
+    for _ in range(4):
+        gr_datum, gr_ort, polster_x, polster_y, ecke = _aus_basis(basis)
+        zeilen = []
+        if datum:
+            zeilen.append((datum, gr_datum, SCHRIFT_FETT))
+        if ort:
+            zeilen.append((ort, gr_ort, SCHRIFT))
+        breite = max(messer.textlength(t, font=schrift(p, g))
+                     for t, g, p in zeilen)
+        platz = BREITE - 2 * RAND - 2 * polster_x
+        if breite <= platz or basis < 24:
+            break
+        basis *= platz / breite
+
+    _kasten_zeichnen(leinwand, zeilen, polster_x, polster_y, ecke)
     return leinwand
 
 
