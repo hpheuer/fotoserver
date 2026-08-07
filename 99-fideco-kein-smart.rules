@@ -1,0 +1,36 @@
+# Fideco USB-SATA-Adapter (Innostor IS611, 1f75:0611): SMART-Abfrage abschalten
+#
+# Der Adapter reicht ATA-Kommandos nicht zuverlaessig durch.  udisksd fragt
+# trotzdem alle zehn Minuten die SMART-Werte ab ("housekeeping"), bekommt
+# unbrauchbare Sense-Daten zurueck, und der USB-Stack setzt daraufhin das
+# Geraet zurueck:
+#
+#   udisksd: Error updating SMART data: Error sending ATA command
+#            CHECK POWER MODE: Unexpected sense data returned
+#   kernel:  usb 2-3: reset SuperSpeed USB device number 7
+#
+# Irgendwann bleibt es nicht beim Reset, sondern die Bruecke meldet sich ganz
+# ab (device not accepting address, error -62) - mitten in einer laufenden
+# Sicherung waere das ein Datenverlust.
+#
+# Die beiden Merkmale unten setzt ata_id; ohne sie laesst udisks das Laufwerk
+# in Ruhe.  Die Platte selbst ist davon unberuehrt, nur die Fernabfrage ihrer
+# SMART-Werte ueber diesen Adapter entfaellt.  Fuer einen ehrlichen
+# Gesundheitscheck die Platte direkt an SATA haengen.
+#
+# Die Zahl 99 im Dateinamen ist wesentlich: udev arbeitet die Regeldateien in
+# alphabetischer Reihenfolge ab, und 60-persistent-storage.rules ruft ata_id
+# auf, das die beiden Merkmale setzt.  Eine Datei mit 60- im Namen liefe davor
+# und wuerde anschliessend ueberschrieben - genau das ist beim ersten Versuch
+# passiert.
+#
+# Einbinden (als root):
+#     cp 99-fideco-kein-smart.rules /etc/udev/rules.d/
+#     udevadm control --reload
+#     udevadm trigger --subsystem-match=block
+#
+# Rueckgaengig: die Datei aus /etc/udev/rules.d/ loeschen und neu anstecken.
+
+ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_USB_VENDOR_ID}=="1f75", \
+  ENV{ID_USB_MODEL_ID}=="0611", \
+  ENV{ID_ATA_FEATURE_SET_SMART}="0", ENV{ID_ATA_FEATURE_SET_SMART_ENABLED}="0"
