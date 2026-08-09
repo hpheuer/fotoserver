@@ -194,12 +194,12 @@
 
   <section>
     <div class="knopfzeile">
-      <button class="wichtig" id="speichern">Speichern</button>
       <a class="knopf" href="/papierkorb">Papierkorb</a>
       <span class="melder" id="melder"></span>
     </div>
-    <p class="hinweis">Die Slideshow übernimmt Änderungen von allein, spätestens
-      nach einer halben Minute.</p>
+    <p class="hinweis">Einstellungen werden sofort gespeichert - es gibt nichts
+      zu bestätigen. Die Slideshow übernimmt sie von allein, spätestens nach
+      einer halben Minute.</p>
   </section>
 
   <section>
@@ -307,6 +307,7 @@
       c.onchange = () => {
         c.checked ? gewaehlt.add(a.album) : gewaehlt.delete(a.album);
         zaehle();
+        sichereAnzeige();
       };
       const t = document.createElement("span"); t.textContent = a.album;
       const n = document.createElement("span"); n.className = "anz";
@@ -339,13 +340,19 @@
     zeichneAlben();
   });
 
-  $("dauerRegler").oninput = () => { $("dauer").value = $("dauerRegler").value; };
-  $("dauer").oninput = () => { $("dauerRegler").value = Math.min(120, $("dauer").value || 8); };
-  $("albensuche").oninput = zeichneAlben;
-  $("alleAn").onclick = () => { alleAlben.forEach(a => gewaehlt.add(a.album)); zeichneAlben(); };
-  $("alleAus").onclick = () => { gewaehlt.clear(); zeichneAlben(); };
+  // Alles auf dieser Seite speichert von allein - es gibt keinen Knopf mehr.
+  // Gesammelt wird eine knappe Sekunde: beim Tippen im Sekundenfeld und beim
+  // Ziehen am Regler fallen sonst Dutzende Zwischenstaende an.  Der letzte
+  // gewinnt.
+  let anzeigeUhr = null;
 
-  $("speichern").onclick = () => {
+  function sichereAnzeige() {
+    clearTimeout(anzeigeUhr);
+    anzeigeUhr = setTimeout(schickeAnzeige, 600);
+  }
+
+  function schickeAnzeige() {
+    clearTimeout(anzeigeUhr);
     const modus = document.querySelector("input[name=modus]:checked");
     // "alle gewählt" und "nichts gewählt" sind dasselbe - leer ist ehrlicher
     const alben = gewaehlt.size === alleAlben.length ? [] : [...gewaehlt];
@@ -360,9 +367,39 @@
       }),
     }).then(r => r.json()).then(a => {
       melde("melder", a.fehler || "Gespeichert.", !a.fehler);
-      if (!a.fehler) { $("dauer").value = a.einstellungen.dauer; ladeZahlen(); }
+      if (a.fehler) return;
+      // Der Server begrenzt die Dauer auf 2 bis 300 s.  Den begrenzten Wert
+      // nur zurueckschreiben, wenn im Feld gerade niemand tippt - sonst
+      // springt die Zahl unter den Fingern weg, sobald man eine 1 eingibt.
+      if (document.activeElement !== $("dauer")) {
+        $("dauer").value = a.einstellungen.dauer;
+        $("dauerRegler").value = Math.min(120, a.einstellungen.dauer);
+      }
+      ladeZahlen();
     }).catch(() => melde("melder", "Speichern fehlgeschlagen.", false));
+  }
+
+  $("dauerRegler").oninput = () => {
+    $("dauer").value = $("dauerRegler").value;
+    sichereAnzeige();
   };
+  $("dauer").oninput = () => {
+    $("dauerRegler").value = Math.min(120, $("dauer").value || 8);
+    sichereAnzeige();
+  };
+  // Feld verlassen oder Eingabetaste: nicht noch warten, sondern gleich
+  // schicken - dann ist auch sofort zu sehen, wenn der Wert begrenzt wurde.
+  $("dauer").onchange = schickeAnzeige;
+
+  $("albensuche").oninput = zeichneAlben;   // reine Filterung, nichts zu sichern
+  $("alleAn").onclick = () => {
+    alleAlben.forEach(a => gewaehlt.add(a.album)); zeichneAlben(); sichereAnzeige();
+  };
+  $("alleAus").onclick = () => { gewaehlt.clear(); zeichneAlben(); sichereAnzeige(); };
+  $("ohneAlbum").onchange = sichereAnzeige;
+  for (const r of document.querySelectorAll("input[name=modus]")) {
+    r.onchange = sichereAnzeige;
+  }
 
   function melde(id, text, gut) {
     const el = $(id);
@@ -537,6 +574,29 @@
         melde("castMelder", `${a.geraete.length} Gerät(e) gefunden.`, true);
       })
       .finally(() => { $("castSuchen").disabled = false; });
+  };
+
+  // Die Geraetewahl gilt sofort, nicht erst beim Klick auf "Senden starten".
+  // Laeuft gerade eine Uebertragung, wird umgeschaltet - sonst zeigte die
+  // Auswahl ein anderes Geraet an als das, was tatsaechlich sendet.
+  $("castGeraet").onchange = () => {
+    const geraet = $("castGeraet").value;
+    if (!geraet) return;
+    if (!$("castAus").hidden) {
+      melde("castMelder", `Wird auf ${geraet} umgeschaltet …`, true);
+      fetch("/api/cast", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({an: true, geraet}),
+      }).then(() => frageCast());
+    } else {
+      fetch("/api/einstellungen", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({cast_geraet: geraet}),
+      }).then(() => melde("castMelder", "Gerät gemerkt.", true))
+        .catch(() => melde("castMelder", "Speichern fehlgeschlagen.", false));
+    }
   };
 
   $("castAn").onclick = () => {

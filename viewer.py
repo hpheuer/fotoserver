@@ -1685,6 +1685,12 @@ def api_cast():
         stand_jetzt = dict(CAST)
     stand_jetzt["moeglich"] = pychromecast is not None and castbild is not None
     stand_jetzt["adresse"] = f"http://{eigene_adresse()}:{PORT}"
+    # Solange nicht gesendet wird, steht in CAST kein Geraetename - das
+    # zuletzt gewaehlte steht aber in den Einstellungen.  Ohne diesen
+    # Rueckgriff zeigte die Einstellungsseite nach einem Neustart eine leere
+    # Auswahl, obwohl das Geraet laengst gespeichert ist.
+    if not stand_jetzt["geraet"]:
+        stand_jetzt["geraet"] = einstellungen_lesen()["cast_geraet"]
     return jsonify(stand_jetzt)
 
 

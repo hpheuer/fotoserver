@@ -1063,6 +1063,7 @@
   function merkeSkala(welche) {
     clearTimeout(merkUhr);
     merkUhr = setTimeout(() => {
+      merkUhr = null;
       const koerper = {};
       koerper[welche + "_skala"] = skala[welche];
       fetch("/api/einstellungen", {
@@ -1074,6 +1075,29 @@
         .catch(() => {});
     }, 500);
   }
+
+  // Wird das Fenster geschlossen oder der Bildschirm gesperrt, bevor die
+  // halbe Sekunde um ist, waere die eben gezogene Groesse verloren.
+  // keepalive laesst den Browser die Anfrage auch beim Schliessen noch zu
+  // Ende bringen.  Beide Werte mitschicken ist hier einfacher als sich zu
+  // merken, welcher gerade offen war - der Server mischt sie ohnehin ein.
+  function spuleSkalaAb() {
+    if (!merkUhr) return;
+    clearTimeout(merkUhr);
+    merkUhr = null;
+    fetch("/api/einstellungen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({info_skala: skala.info,
+                            leiste_skala: skala.leiste}),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  addEventListener("pagehide", spuleSkalaAb);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") spuleSkalaAb();
+  });
 
   // richtung sagt, in welche Richtung "größer" liegt: die Beschriftung
   // klebt unten links, die Leiste unten rechts.
