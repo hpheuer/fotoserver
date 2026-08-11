@@ -265,6 +265,20 @@ def _skala(wert, vorgabe):
     return round(max(SKALA_MIN, min(SKALA_MAX, z)), 3)
 
 
+# Rechnername oder IP, wahlweise mit Port - mehr nicht.  Die Adresse landet
+# in steckdose.sh als http://$ADR/relay/0?…; stuende ein Schraegstrich oder
+# Fragezeichen darin, liesse sich der angehaengte Teil der Anfrage von hier
+# aus umschreiben.  Ein Schema (http://) gehoert ebenfalls nicht hinein, das
+# setzt das Skript selbst.
+STECKDOSE_MUSTER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}(?::\d{1,5})?$")
+
+
+def steckdose_gueltig(adresse):
+    """Leer ist erlaubt - dann besorgt den Strom jemand anders."""
+    adresse = str(adresse or "").strip()
+    return not adresse or bool(STECKDOSE_MUSTER.fullmatch(adresse))
+
+
 def saubere_werte(werte):
     try:
         dauer = int(werte.get("dauer", VORGABEN["dauer"]))
@@ -291,7 +305,11 @@ def saubere_werte(werte):
         # Muss hier stehen, auch wenn die Seite den Wert nie schickt: was
         # saubere_werte nicht kennt, faellt beim naechsten Speichern raus -
         # und ohne Adresse bliebe der Rechner nach dem Halt fuer immer aus.
-        "steckdose": str(werte.get("steckdose") or VORGABEN["steckdose"]),
+        # Unsinn wird verworfen, nicht durchgereicht; die Route meldet ihn
+        # vorher schon zurueck, hier ist es nur das Netz darunter.
+        "steckdose": (str(werte.get("steckdose") or "").strip()
+                      if steckdose_gueltig(werte.get("steckdose"))
+                      else VORGABEN["steckdose"]),
     }
 
 
@@ -722,6 +740,14 @@ def api_einstellungen():
         daten = request.get_json(silent=True)
         if not isinstance(daten, dict):
             return jsonify({"fehler": "Kein gültiges JSON"}), 400
+        # Hier abweisen statt in saubere_werte still zu verwerfen: eine
+        # verworfene Adresse waere eine leere Adresse, und der Rechner bliebe
+        # nach dem naechsten Halt aus, ohne dass jemand etwas gemerkt haette.
+        if "steckdose" in daten and not steckdose_gueltig(daten["steckdose"]):
+            return jsonify({
+                "fehler": "Adresse der Steckdose: nur Name oder IP, "
+                          "wahlweise mit :Port — ohne http:// und ohne Pfad.",
+            }), 400
         gespeichert = einstellungen_schreiben(daten)
         return jsonify({"einstellungen": gespeichert, "stand": stand()})
     return jsonify({"einstellungen": einstellungen_lesen(), "stand": stand()})
@@ -2265,20 +2291,50 @@ def steckdose_erreichbar():
 
     Rueckgabe wie ausschalten_erlaubt(): (ja, grund).
     """
-    if not STECKDOSE.exists():
+    code, text = steckdose_probe()
+    if code == 0:
+        return True, ""
+    if code is None:
         return True, ""                     # kein Skript, alter Weg
+    if code == 2:
+        # Keine Adresse eingetragen.  Dann besorgt den Strom jemand anders
+        # (frueher HomeAssistant) - das ist eine Entscheidung, keine Panne.
+        return True, ""
+    return False, text or "keine Antwort"
+
+
+def steckdose_probe():
+    """steckdose.sh pruefen aufrufen -> (rueckgabewert, Text).
+
+    Geschaltet wird dabei nichts, gelesen nur /status.  None heisst: es
+    gibt das Skript hier gar nicht.
+    """
+    if not STECKDOSE.exists():
+        return None, "steckdose.sh ist nicht vorhanden."
     try:
         fertig = subprocess.run([str(STECKDOSE), "pruefen"],
                                 capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"steckdose.sh nicht ausfuehrbar: {exc}"
-    if fertig.returncode == 0:
-        return True, ""
-    if fertig.returncode == 2:
-        # Keine Adresse eingetragen.  Dann besorgt den Strom jemand anders
-        # (frueher HomeAssistant) - das ist eine Entscheidung, keine Panne.
-        return True, ""
-    return False, (fertig.stdout or fertig.stderr).strip() or "keine Antwort"
+        return 1, f"steckdose.sh nicht ausfuehrbar: {exc}"
+    return fertig.returncode, (fertig.stdout or fertig.stderr).strip()
+
+
+@app.route("/api/steckdose")
+def api_steckdose():
+    """Was steht drin, und antwortet die Dose darauf?
+
+    Nur Lesen - deshalb GET.  Ohne diese Probe merkte man eine falsch
+    eingetippte Adresse erst beim naechsten Ausschalten, und dann ist der
+    Rechner still und niemand mehr da, der es korrigieren koennte.
+    """
+    adresse = einstellungen_lesen()["steckdose"]
+    if not adresse:
+        return jsonify({"adresse": "", "erreichbar": False,
+                        "meldung": "Keine Adresse eingetragen — den Strom "
+                                   "muss dann jemand anders wegnehmen."})
+    code, text = steckdose_probe()
+    return jsonify({"adresse": adresse, "erreichbar": code == 0,
+                    "meldung": text})
 
 
 def ausschalten_erlaubt():

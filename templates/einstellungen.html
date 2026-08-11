@@ -299,6 +299,30 @@
   </section>
 
   <section>
+    <h2>Steckdose</h2>
+    <p class="hinweis" style="margin:0 0 1rem">
+      Der Rechner schaltet sich nicht selbst aus, er hält nur an — den Strom
+      nimmt die Steckdose weg, und weil das Board dabei unter Spannung
+      bleibt, fährt es beim nächsten Einschalten der Dose von allein wieder
+      hoch. Ändert sich ihre Adresse im Netz, gehört sie hierher.
+    </p>
+    <div class="zeile">
+      <label class="feld" for="steckdose">Adresse</label>
+      <input type="text" id="steckdose" placeholder="z. B. 192.168.178.123"
+             inputmode="url" autocomplete="off" spellcheck="false"
+             style="min-width:16rem">
+      <button type="button" id="steckdosePruefen">Prüfen</button>
+      <span class="melder" id="steckdoseMelder"></span>
+    </div>
+    <p class="hinweis">
+      Name oder IP, wahlweise mit <code>:Port</code> — ohne <code>http://</code>.
+      Leer heißt: den Strom nimmt jemand anders weg. Die Dose antwortet nicht
+      auf <code>ping</code>, nur auf HTTP; „Prüfen“ liest ihren Zustand und
+      schaltet nichts.
+    </p>
+  </section>
+
+  <section>
     <h2>Platz schaffen</h2>
     <p class="hinweis" style="margin:0 0 1rem">
       Nach dem Import wird der Takeout nicht mehr gebraucht — die Slideshow
@@ -934,6 +958,58 @@
   };
 
   ladeMedien().then(frageSicherung);
+
+  // ------------------------------------------------------------- Steckdose
+
+  // Die Adresse steht in settings.json und wird von steckdose.sh gelesen,
+  // nicht vom Viewer benutzt - der stellt sie hier nur ein.  Gespeichert
+  // wird wie überall sofort; getippt wird aber selten, deshalb reicht das
+  // Verlassen des Feldes und die Eingabetaste als Auslöser.  Ein Timer beim
+  // Tippen würde hier nur halbe Adressen speichern.
+  let steckdoseStand = "";
+
+  fetch("/api/steckdose").then(r => r.json()).then(s => {
+    steckdoseStand = s.adresse || "";
+    $("steckdose").value = steckdoseStand;
+    if (s.adresse) melde("steckdoseMelder", s.meldung, s.erreichbar);
+  }).catch(() => {});
+
+  function sichereSteckdose() {
+    const wert = $("steckdose").value.trim();
+    if (wert === steckdoseStand) return;          // nichts geändert
+    fetch("/api/einstellungen", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({steckdose: wert}),
+    }).then(r => r.json().then(a => ({ok: r.ok, a}))).then(({ok, a}) => {
+      if (!ok) { melde("steckdoseMelder", a.fehler, false); return; }
+      steckdoseStand = a.einstellungen.steckdose;
+      $("steckdose").value = steckdoseStand;
+      // Nach dem Speichern gleich nachsehen, ob dort wirklich etwas
+      // antwortet - eine Adresse, die niemand beantwortet, fällt sonst erst
+      // beim Ausschalten auf, und dann ist es zu spät.
+      pruefeSteckdose("Gespeichert. ");
+    }).catch(() => melde("steckdoseMelder", "Speichern fehlgeschlagen.", false));
+  }
+
+  function pruefeSteckdose(davor) {
+    const knopf = $("steckdosePruefen");
+    knopf.disabled = true;
+    zeigeMelder("steckdoseMelder", (davor || "") + "wird geprüft …", "");
+    fetch("/api/steckdose").then(r => r.json()).then(s => {
+      melde("steckdoseMelder", (davor || "") + s.meldung, s.erreichbar);
+    }).catch(() => melde("steckdoseMelder", "Prüfen fehlgeschlagen.", false))
+      .finally(() => { knopf.disabled = false; });
+  }
+
+  $("steckdose").onchange = sichereSteckdose;
+  $("steckdose").onkeydown = e => { if (e.key === "Enter") sichereSteckdose(); };
+  $("steckdosePruefen").onclick = () => {
+    // Erst sichern, sonst prüfte der Knopf die alte Adresse und meldete
+    // fröhlich "erreichbar", während im Feld längst eine andere steht.
+    if ($("steckdose").value.trim() !== steckdoseStand) sichereSteckdose();
+    else pruefeSteckdose();
+  };
 
   // ---------------------------------------------------------- Platz schaffen
 
