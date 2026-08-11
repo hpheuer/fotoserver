@@ -1,0 +1,29 @@
+[Unit]
+Description=Fotoserver sichern (Auftrag aus dem Webinterface)
+Documentation=file:/home/BENUTZER/photoserver/sicherung.sh
+
+[Service]
+Type=oneshot
+
+# Erst den Auftrag beiseiteschieben, dann arbeiten.  Das Umbenennen ist der
+# Grund, warum das hier steht und nicht im Skript: waere die Datei noch da,
+# wenn sicherung.sh vorzeitig stirbt, wuerde photoserver-sicherung.path
+# sofort wieder ausloesen - und immer weiter.
+ExecStartPre=/usr/bin/mv -f /home/BENUTZER/photoserver/sicherung-auftrag.txt /home/BENUTZER/photoserver/sicherung-auftrag.laeuft
+ExecStart=/home/BENUTZER/photoserver/sicherung.sh --auftrag
+
+# Der erste volle Lauf auf eine leere Platte dauert eine Stunde und mehr.
+TimeoutStartSec=infinity
+
+# Die Slideshow soll waehrenddessen nicht ruckeln: rsync bekommt Vorrang
+# nur, wenn sonst nichts los ist.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+StandardOutput=journal
+StandardError=journal
+
+# Kein Sandkasten: hier wird eingehaengt und auf eine fremde Platte
+# geschrieben, beides braucht die vollen Rechte.  Die Grenzen zieht das
+# Skript selbst - USB-Geraet, nicht die Systemplatte, niemals formatieren.

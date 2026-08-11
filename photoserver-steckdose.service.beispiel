@@ -1,0 +1,38 @@
+#  Fotoserver: den eigenen Stromausfall bestellen, bevor der Rechner haelt.
+#
+#  Nach /etc/systemd/system/ kopieren und aktivieren - das erledigt
+#  "Fotoserver einrichten" (einrichten.sh, Schritt 6).
+#  BENUTZER durch den eigenen Anmeldenamen ersetzen.
+#
+#  Die Unit tut beim Starten nichts.  Ihre ganze Arbeit steckt in ExecStop:
+#  systemd stoppt sie beim Herunterfahren, und weil sie hinter dem Netz
+#  eingeordnet ist (After=), geschieht das noch bevor das Netz abgebaut
+#  wird.  Genau das braucht es, denn die Bestellung geht per WLAN raus.
+#
+#  Damit haengt der Weg nicht mehr am Viewer allein: auch der
+#  Ausschaltknopf am Desktop und ein `systemctl halt` von Hand kommen hier
+#  vorbei.  Ob der Strom wirklich weg soll, entscheidet steckdose.sh - bei
+#  einem Neustart bestellt es nichts.
+
+[Unit]
+Description=Fotoserver: Stromausfall bei der Steckdose bestellen
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/home/BENUTZER/photoserver/steckdose.sh beim-herunterfahren
+
+# steckdose.sh versucht es sechsmal, bevor es aufgibt.  Lieber eine Minute
+# laenger herunterfahren als eine Kiste, die nicht wieder hochkommt.
+TimeoutStopSec=90
+
+# Die Meldungen sollen im Journal des Herunterfahrens stehen - dort sucht
+# man, wenn der Rechner morgens aus geblieben ist.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

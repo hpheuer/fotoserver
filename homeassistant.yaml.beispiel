@@ -19,6 +19,17 @@ rest_command:
     method: POST
     timeout: 10
 
+  # Faehrt den ganzen Rechner herunter - bis zum Halt, nicht bis zum Aus.
+  # Den Strom nimmt danach die Steckdose weg, siehe Automation unten.
+  #
+  # Laeuft gerade ein Import, kommt statt dessen 409 zurueck und der Rechner
+  # bleibt an - ein halb entpackter Takeout kostet beim naechsten Lauf
+  # Stunden.  Wer das nicht will, haengt ?trotzdem=1 an die Adresse.
+  fotoserver_ausschalten:
+    url: "http://FOTOSERVER-IP:8080/api/ausschalten"
+    method: POST
+    timeout: 15
+
 automation:
   # Der Dongle haengt am Strom - sobald er da ist, kann gesendet werden.
   # Die zwanzig Sekunden Verzoegerung geben ihm Zeit zum Hochfahren; ohne
@@ -39,3 +50,43 @@ automation:
         to: "off"
     action:
       - service: rest_command.fotoserver_cast_aus
+
+  # Zum Ausschalten gibt es absichtlich keine fertige Automation: wann der
+  # Rechner aus soll, weisst nur du.  Ein Beispiel fuer jeden Abend um 22 Uhr
+  # - die Raute vorne weg, dann laeuft es.
+  #
+  # Ein Schritt genuegt.  Den Strom nimmt sich der Rechner selbst:  bevor er
+  # anhaelt, bestellt er bei der Steckdose einen Abwurf in einer Minute
+  # (photoserver-steckdose.service ruft steckdose.sh auf).  HomeAssistant
+  # muss dafuer nichts mehr abpassen - kein delay, kein switch.turn_off.
+  #
+  # Der Rechner haelt dabei nur an, statt sich abzuschalten.  Das Board
+  # bleibt unter Strom, der Luefter laeuft weiter, geschrieben wird nichts
+  # mehr.  Erst dadurch ist der spaetere Abwurf fuer das BIOS ein
+  # Stromausfall im Betrieb, und nur den vermerkt es sich; nach einem
+  # echten Ausschalten bliebe der Rechner beim Wiedereinschalten der Dose
+  # einfach aus.  Im BIOS muss dafuer "After Power Loss: Power On" stehen.
+  #
+  # Antwortet die Steckdose nicht, kommt aus /api/ausschalten ein 503 und
+  # der Rechner bleibt an - lieber das als eine Kiste, die im Schrank
+  # steht und nicht mehr hochkommt.  Waehrend eines Imports kommt 409.
+  # In beiden Faellen bricht die Automation ab.  Genau so soll es sein.
+  #
+  # - alias: "Fotoserver: abends ausschalten"
+  #   trigger:
+  #     - platform: time
+  #       at: "22:00:00"
+  #   action:
+  #     - service: rest_command.fotoserver_ausschalten
+  #
+  # Eingeschaltet wird der Rechner, indem die Dose wiederkommt - mehr ist
+  # es nicht:
+  #
+  # - alias: "Fotoserver: morgens einschalten"
+  #   trigger:
+  #     - platform: time
+  #       at: "07:30:00"
+  #   action:
+  #     - service: switch.turn_on
+  #       target:
+  #         entity_id: switch.fotoserver_steckdose

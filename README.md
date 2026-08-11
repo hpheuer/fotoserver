@@ -29,6 +29,9 @@ groß genug, um sie vom Tisch aus zu lesen.
   Nachbarn. Sie stehen in eigenen Spalten und überleben jeden Neuimport.
 - **Papierkorb**, geschlüsselt über die Prüfsumme — ein gelöschtes Bild
   bleibt auch nach einem überlappenden Export draußen.
+- **Sicherung auf eine USB-Platte** aus dem Browser heraus: angesteckte
+  Datenträger stehen zur Auswahl, wahlweise alles oder nur Datenbank und
+  Einstellungen.
 
 **Originaldateien werden nie verändert.** Alle Korrekturen leben in der
 Datenbank, die Anzeige bedient sich aus erzeugten Thumbnails.
@@ -73,6 +76,52 @@ python3 import_photos.py --source ~/takeout-import/Takeout
 
 Als Dienst: `photoserver.service.beispiel` anpassen und nach
 `/etc/systemd/system/` kopieren. `exiftool` wird für den Import gebraucht.
+
+Soll der Rechner sich per `POST /api/ausschalten` selbst herunterfahren
+können — gedacht für einen kopflosen Betrieb —, gehört zusätzlich
+`50-fotoserver-ausschalten.rules.beispiel` mit eingetragenem Benutzernamen
+nach `/etc/polkit-1/rules.d/`. Ohne die Regel antwortet der Aufruf mit 503,
+statt wirkungslos OK zu melden.
+
+Der Aufruf hält den Rechner an (`systemctl halt`), schaltet ihn aber nicht
+aus: das Board bleibt unter Strom, geschrieben wird nichts mehr. Den Strom
+nimmt anschließend eine schaltbare Steckdose weg. Das ist Absicht — viele
+BIOS bringen den Rechner mit „After Power Loss: Power On" nur dann wieder
+hoch, wenn der Strom **im Betrieb** verschwand; nach einem echten
+`poweroff` bliebe er beim Wiedereinschalten der Dose aus. Die Steckdose ist
+damit der Ein- und Ausschalter. Wer stattdessen Wake-on-LAN oder einen
+BIOS-Zeitplan zum Einschalten nutzt, ändert die beiden Stellen in
+`viewer.py` und der polkit-Regel auf `poweroff` zurück.
+
+### Sicherung aus dem Browser
+
+Der Knopf auf der Einstellungsseite sichert auf eine angesteckte USB-Platte,
+wahlweise das ganze Benutzerverzeichnis oder nur Datenbank und
+Einstellungen. Das eigentliche Sichern erledigt ein Shell-Skript
+(`sicherung.sh`, nicht im Repository: es enthält die Seriennummer der
+eigenen Platte).
+
+Der Webdienst bekommt dafür **kein einziges zusätzliches Recht**. Er läuft
+mit `NoNewPrivileges` und darf nur in sein eigenes Verzeichnis schreiben —
+eine Platte einhängen kann er nicht. Stattdessen legt er einen Auftrag ab,
+zwei Zeilen in `sicherung-auftrag.txt`:
+
+```
+photoserver-sicherung.path      sieht die Datei auftauchen
+  └── photoserver-sicherung.service  schiebt sie beiseite und ruft
+        sicherung.sh --auftrag       als root auf
+```
+
+Beide Units liegen als `*.beispiel` bei. Das Skript prüft anschließend
+selbst, was ihm da aufgetragen wurde: nur ein USB-Datenträger, niemals die
+Systemplatte, niemals formatieren, und bei mehr als 500 zu löschenden
+Dateien Abbruch statt Rückfrage — vor dem Browser sitzt niemand, der
+bestätigen könnte. Der Fortschritt geht über zwei Dateien zurück an die
+Seite (`sicherung-stand.json`, `sicherung-web.log`).
+
+Gemeldet wird „fertig" erst **nach** `sync` und `umount` — vorher wäre es
+eine Lüge, denn der Schreibcache des Kernels ist dann noch nicht leer. Die
+Meldung sagt deshalb gleich, ob die Platte abgezogen werden darf.
 
 ## Zwei Dinge, die überraschen können
 

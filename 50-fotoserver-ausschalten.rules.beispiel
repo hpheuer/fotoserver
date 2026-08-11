@@ -1,0 +1,28 @@
+// Der Fotoserver darf den Rechner anhalten.
+//
+// Der Rechner steht kopflos im Schrank; heruntergefahren wird er von
+// HomeAssistant ueber POST /api/ausschalten, den Strom nimmt HomeAssistant
+// danach an der Steckdose weg.  Der Dienst laeuft unter dem Benutzer, der
+// unten eingetragen ist, und ruft dafuer `systemctl halt` auf - nicht
+// `poweroff`: das Board muss unter Strom stehen bleiben, damit das BIOS das
+// Wegnehmen als Stromausfall wertet und "After Power Loss: Power On" den
+// Rechner spaeter wieder hochbringt.
+//
+// Warum polkit und nicht sudo: photoserver.service laeuft mit
+// NoNewPrivileges=yes, und damit ist sudo tot - setuid greift nicht mehr.
+// `systemctl halt` braucht das gar nicht, es reicht eine Nachricht an
+// logind ueber den D-Bus.  Nur fragt logind vorher polkit, und ein
+// Systemdienst hat keine angemeldete Sitzung, auf die sich die Vorgabe
+// stuetzen koennte.  Diese Regel beantwortet genau diese eine Frage.
+//
+// Erlaubt ist ausschliesslich das Anhalten.  Neustart, Ruhezustand und
+// das Uebergehen fremder Sperren bleiben aussen vor.
+//
+// Wird von einrichten.sh nach /etc/polkit-1/rules.d/ kopiert.
+
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.login1.halt" &&
+        subject.user == "BENUTZER") {
+        return polkit.Result.YES;
+    }
+});

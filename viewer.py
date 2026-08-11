@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import random
 import re
 import shutil
@@ -33,6 +34,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 import zipfile
 from collections import deque
 from datetime import datetime
@@ -82,6 +84,7 @@ VORGABEN = {
     "cast_an": False,        # parallel an einen Fernseher senden
     "cast_geraet": "",       # dessen Name im Netz
     "cast_skala": 1.0,       # Feinjustierung der Schrift auf dem Fernseher
+    "steckdose": "",         # Adresse der Shelly, an der der Rechner haengt
 }
 
 # Port, unter dem der Server laeuft.  Der Chromecast holt sich die Bilder
@@ -285,6 +288,10 @@ def saubere_werte(werte):
                            or VORGABEN["cast_geraet"]),
         "cast_skala": _skala(werte.get("cast_skala"),
                              VORGABEN["cast_skala"]),
+        # Muss hier stehen, auch wenn die Seite den Wert nie schickt: was
+        # saubere_werte nicht kennt, faellt beim naechsten Speichern raus -
+        # und ohne Adresse bliebe der Rechner nach dem Halt fuer immer aus.
+        "steckdose": str(werte.get("steckdose") or VORGABEN["steckdose"]),
     }
 
 
@@ -1445,6 +1452,14 @@ def cast_befehl(was, ziel_id=None):
 # Stufe nur noch ein Notnagel fuer den Fall, dass der Anruf ausbleibt.
 WARTE_STUFEN = (15, 30, 60, 120, 300, 600)
 
+# So lange darf das Abmelden dauern.  Der Socket-Faden von pychromecast
+# reagiert naemlich nicht sofort auf disconnect(): steckt er gerade in einem
+# Verbindungsversuch, laeuft erst dessen Zeitgrenze ab (TIMEOUT_TIME, 30 s),
+# und danach schlaeft er noch RETRY_TIME (5 s) in einem time.sleep, das vom
+# Stopp-Signal nichts weiss.  Wer frueher aufgibt und die Suche zumacht,
+# stellt genau die Lage her, gegen die _cast_aufraeumen() gebaut ist.
+CAST_ABMELDE_FRIST = 40
+
 
 def _warte(stufe):
     """Bis zum naechsten Versuch schlafen.  Bricht ab, sobald jemand
@@ -1482,6 +1497,41 @@ def _suche_beenden(browser):
         app.logger.warning("Cast-Suche nicht sauber beendet: %s", exc)
 
 
+def _cast_aufraeumen(cast, browser):
+    """Verbindung und Suche zumachen - und zwar in dieser Reihenfolge.
+
+    pychromecast haelt fuer jeden Chromecast einen eigenen Faden, der von
+    sich aus wieder verbinden will.  Wird nur der Browser beendet, laeuft
+    dieser Faden weiter und greift auf die schon gestoppte
+    Zeroconf-Instanz zu.  Dann wirft er
+
+        AssertionError: Zeroconf instance loop must be running
+
+    faengt sich selbst wieder ("attempting reconnect") und versucht es
+    sofort erneut - ohne jede Pause.  Am 10.8.2026 waren das den halben
+    Abend lang 700.000 Journalmeldungen je 30 Sekunden und 44 % CPU, nur
+    weil dem Dongle nach dem Fruehstueck der Strom fehlte.
+
+    disconnect() beendet den Faden und wartet selbst auf ihn - erst danach
+    darf die Suche zu.  Andersherum entsteht genau der Sturm.
+
+    Das Warten braucht Geduld: fuenf Sekunden reichten am 11.8.2026 nicht,
+    der Faden hing noch neun Sekunden laenger im Verbindungsversuch (siehe
+    CAST_ABMELDE_FRIST).  Die Suche wurde derweil schon geschlossen - dass
+    es gut ging, war Glueck.
+    """
+    if cast is not None:
+        try:
+            # Ein eigenes join() danach braucht es nicht: disconnect()
+            # wartet bereits auf den Faden und wirft, wenn er nicht endet.
+            cast.disconnect(timeout=CAST_ABMELDE_FRIST)
+        except Exception as exc:
+            app.logger.warning(
+                "Cast-Faden lebt nach %s s noch (%s) — Suche wird trotzdem "
+                "geschlossen", CAST_ABMELDE_FRIST, exc)
+    _suche_beenden(browser)
+
+
 def cast_suchen(timeout=6):
     """Alle Cast-Geraete im Netz auflisten."""
     if pychromecast is None:
@@ -1505,7 +1555,14 @@ def _cast_verbinden(name):
         _suche_beenden(browser)
         return None, None
     cast = geraete[0]
-    cast.wait(timeout=15)
+    # Scheitert das Warten, kommt der Aufrufer nie an dieses Objekt - sein
+    # Faden liefe aber weiter und suchte endlos neu.  Also hier aufraeumen,
+    # solange man es noch in der Hand hat.
+    try:
+        cast.wait(timeout=15)
+    except Exception:
+        _cast_aufraeumen(cast, browser)
+        raise
     return cast, browser
 
 
@@ -1608,11 +1665,9 @@ def _cast_lauf():
             # den naechsten Morgen warten.
             _cast_melden(f"Verbindung verloren ({type(exc).__name__}) — "
                          f"wird weiter gesucht", verbunden=False)
-            if browser is not None:
-                try:
-                    _suche_beenden(browser)
-                except Exception:
-                    pass
+            # Auch das cast-Objekt muss weg, nicht nur die Suche - sonst
+            # dreht sein Faden im Leerlauf weiter (siehe _cast_aufraeumen).
+            _cast_aufraeumen(cast, browser)
             cast = browser = None
             _warte(fehlversuche)
             fehlversuche += 1
@@ -1623,11 +1678,7 @@ def _cast_lauf():
             cast.quit_app()
         except Exception:
             pass
-    if browser is not None:
-        try:
-            _suche_beenden(browser)
-        except Exception:
-            pass
+    _cast_aufraeumen(cast, browser)
     _cast_melden("Aus.", verbunden=False)
 
 
@@ -1896,6 +1947,424 @@ def api_takeout_loeschen():
                 except OSError as exc:
                     app.logger.warning("%s nicht löschbar: %s", p, exc)
     return jsonify({"ok": True, "bytes": frei, "anzahl": len(weg)})
+
+
+# -------------------------------------------------------------- Sicherung
+
+# Sichern heisst: eine fremde Platte einhaengen und mit vollen Rechten
+# darauf schreiben.  Der Viewer kann das nicht - er laeuft als joerg mit
+# NoNewPrivileges und darf ausserhalb von ~/photoserver und ~/takeout-import
+# nicht einmal etwas anlegen.  Das ist Absicht und bleibt so.
+#
+# Also stellt er nur einen Auftrag: zwei Zeilen in sicherung-auftrag.txt.
+# photoserver-sicherung.path sieht die Datei auftauchen und startet
+# sicherung.sh als root; das Skript prueft selbst, ob das genannte Ziel ein
+# USB-Datentraeger und nicht die Systemplatte ist.  Zurueck kommen
+# sicherung-stand.json (Fortschritt) und sicherung-web.log (Mitschrift).
+#
+# Der Umweg ueber eine Datei statt ueber sudo ist der Punkt: der Dienst
+# bekommt kein einziges zusaetzliches Recht dazu.
+SICHERUNG_AUFTRAG = BASE / "sicherung-auftrag.txt"
+SICHERUNG_STAND = BASE / "sicherung-stand.json"
+SICHERUNG_LOG = BASE / "sicherung-web.log"
+SICHERUNG_UNIT = "photoserver-sicherung"
+
+# Was sich beschreiben laesst.  iso9660 und squashfs sind Nur-Lese-
+# Dateisysteme - ein Installationsstick soll gar nicht erst zur Wahl stehen.
+DATEISYSTEME = ("ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs",
+                "reiserfs", "vfat", "exfat", "ntfs", "ntfs3")
+FREMDE_DATEISYSTEME = ("vfat", "exfat", "ntfs", "ntfs3")
+
+# So lange darf ein Auftrag herumliegen, bevor klar ist, dass ihn niemand
+# abholt - dann fehlt die systemd-Regel.
+AUFTRAG_GEDULD = 30.0
+
+
+def _by_id(geraet):
+    """Stabiler Name eines Geraets unter /dev/disk/by-id.
+
+    /dev/sdb1 wandert beim Umstecken, der Name unter by-id nicht.  Genau
+    dieser Name geht in den Auftrag - so sichert niemand versehentlich auf
+    die Platte, die gerade zufaellig denselben Buchstaben hat.
+    """
+    ordner = Path("/dev/disk/by-id")
+    if not ordner.is_dir():
+        return None
+    ziel = os.path.realpath(geraet)
+    treffer = []
+    for link in ordner.iterdir():
+        try:
+            if os.path.realpath(link) == ziel:
+                treffer.append(link.name)
+        except OSError:
+            pass
+    # wwn-0x5001b4... sagt niemandem etwas; usb-Samsung_... schon.
+    treffer.sort(key=lambda n: (n.startswith("wwn-"), len(n)))
+    return treffer[0] if treffer else None
+
+
+def _lsblk():
+    try:
+        fertig = subprocess.run(
+            ["lsblk", "-J", "-b", "-o",
+             "NAME,PATH,SIZE,MODEL,LABEL,FSTYPE,TRAN,HOTPLUG,TYPE,MOUNTPOINT"],
+            capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if fertig.returncode != 0:
+        return []
+    try:
+        return json.loads(fertig.stdout).get("blockdevices", [])
+    except json.JSONDecodeError:
+        return []
+
+
+def system_platte():
+    """Die Platte, auf der / liegt - die kommt als Ziel nie in Frage."""
+    try:
+        quelle = subprocess.run(["findmnt", "-no", "SOURCE", "/"],
+                                capture_output=True, text=True,
+                                timeout=10).stdout.strip()
+        eltern = subprocess.run(["lsblk", "-no", "PKNAME", quelle],
+                                capture_output=True, text=True,
+                                timeout=10).stdout.strip().splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return f"/dev/{eltern[0].strip()}" if eltern else None
+
+
+def sicherungs_medien():
+    """Angesteckte USB-Datentraeger, auf die sich sichern laesst.
+
+    Angeboten wird, was ein beschreibbares Dateisystem hat - eine Partition
+    oder, bei Sticks ohne Partitionstabelle, das Geraet selbst.
+    """
+    system = system_platte()
+    raus = []
+    for platte in _lsblk():
+        if platte.get("type") != "disk" or platte.get("tran") != "usb":
+            continue
+        if platte.get("path") == system:
+            continue
+        teile = platte.get("children") or [platte]
+        for teil in teile:
+            fs = (teil.get("fstype") or "").lower()
+            if fs not in DATEISYSTEME:
+                continue
+            kennung = _by_id(teil.get("path", ""))
+            if not kennung:
+                continue
+            frei = None
+            einhaeng = teil.get("mountpoint")
+            if einhaeng:
+                try:
+                    frei = shutil.disk_usage(einhaeng).free
+                except OSError:
+                    pass
+            raus.append({
+                "id": kennung,
+                "geraet": teil.get("path"),
+                "modell": (platte.get("model") or "").strip(),
+                "etikett": teil.get("label") or "",
+                "dateisystem": fs,
+                "bytes": teil.get("size") or 0,
+                "frei": frei,
+                "eingehaengt": einhaeng or "",
+                "fremd": fs in FREMDE_DATEISYSTEME,
+            })
+    return raus
+
+
+def _dienst_laeuft(unit):
+    """Laeuft die Unit gerade?  Ohne systemctl gilt: keine Ahnung, also nein."""
+    try:
+        fertig = subprocess.run(["systemctl", "is-active", unit],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return fertig.stdout.strip() in ("active", "activating", "reloading")
+
+
+def sicherung_eingerichtet():
+    """Gibt es die systemd-Regel, die den Auftrag abholt?"""
+    return Path(f"/etc/systemd/system/{SICHERUNG_UNIT}.path").exists()
+
+
+def _letzte_zeilen(pfad, anzahl=400):
+    try:
+        with pfad.open("r", encoding="utf-8", errors="replace") as f:
+            return [z.rstrip("\n") for z in deque(f, maxlen=anzahl)]
+    except OSError:
+        return []
+
+
+def sicherung_status():
+    """Wie weit ist der Lauf?  Zusammengesetzt aus Auftrag, Stand und Log."""
+    stand = {}
+    if SICHERUNG_STAND.exists():
+        try:
+            stand = json.loads(SICHERUNG_STAND.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            stand = {}
+
+    wartet = SICHERUNG_AUFTRAG.exists()
+    laeuft = _dienst_laeuft(f"{SICHERUNG_UNIT}.service")
+
+    if wartet and not laeuft:
+        # Der Auftrag liegt da und niemand holt ihn ab.  Nach einer halben
+        # Minute ist klar: die systemd-Regel fehlt oder ist aus.  Dann den
+        # Auftrag zuruecknehmen, statt ihn auf ewig liegen zu lassen - beim
+        # naechsten Start wuerde er sonst ploetzlich losgehen.
+        try:
+            alt = time.time() - SICHERUNG_AUFTRAG.stat().st_mtime
+        except OSError:
+            alt = 0
+        if alt > AUFTRAG_GEDULD:
+            SICHERUNG_AUFTRAG.unlink(missing_ok=True)
+            wartet = False
+            stand = {
+                "aktiv": False, "erfolg": False, "schritt_nr": 0,
+                "meldung": "Der Sicherungsdienst hat den Auftrag nicht "
+                           "abgeholt - „Fotoserver einrichten“ starten.",
+            }
+
+    aktiv = bool(wartet or laeuft)
+    if stand.get("aktiv") and not aktiv:
+        # Stehengeblieben, etwa weil der Rechner mitten im Lauf ausging.
+        stand["aktiv"] = False
+        stand["erfolg"] = False
+        stand.setdefault("meldung", "Abgebrochen - der Lauf endete unerwartet.")
+
+    return {
+        "eingerichtet": sicherung_eingerichtet(),
+        "aktiv": aktiv,
+        "wartet": wartet,
+        "schritt": stand.get("schritt"),
+        "schritt_nr": stand.get("schritt_nr", 0),
+        "schritte_gesamt": stand.get("schritte_gesamt", 6),
+        "begonnen": stand.get("begonnen"),
+        "beendet": stand.get("beendet"),
+        "erfolg": stand.get("erfolg"),
+        "meldung": stand.get("meldung"),
+        "umfang": stand.get("umfang"),
+        "ziel": stand.get("ziel"),
+        "zeilen": _letzte_zeilen(SICHERUNG_LOG),
+    }
+
+
+@app.route("/api/sicherung")
+def api_sicherung():
+    return jsonify({"medien": sicherungs_medien(), **sicherung_status()})
+
+
+@app.route("/api/sicherung/status")
+def api_sicherung_status():
+    return jsonify(sicherung_status())
+
+
+@app.route("/api/sicherung/start", methods=["POST"])
+def api_sicherung_start():
+    """Einen Sicherungsauftrag hinterlegen.
+
+    Geprueft wird hier nur das Naheliegende: gibt es das Medium ueberhaupt,
+    ist der Umfang einer von zweien, laeuft nicht schon etwas.  Ob auf das
+    Ziel geschrieben werden darf, entscheidet sicherung.sh als root - der
+    Auftrag ist eine Bitte, keine Anweisung.
+    """
+    daten = request.get_json(silent=True) or {}
+    ziel = str(daten.get("ziel", "")).strip()
+    umfang = str(daten.get("umfang", "klein")).strip()
+
+    if umfang not in ("alles", "klein"):
+        return jsonify({"fehler": "Umfang: alles oder klein"}), 400
+    if not re.fullmatch(r"[A-Za-z0-9._:+-]{1,120}", ziel):
+        return jsonify({"fehler": "Unzulässiger Zielname"}), 400
+    if not sicherung_eingerichtet():
+        return jsonify({
+            "fehler": "Der Sicherungsdienst ist nicht eingerichtet.",
+            "hinweis": "Einmalig „Fotoserver einrichten“ starten.",
+        }), 503
+    if ziel not in [m["id"] for m in sicherungs_medien()]:
+        return jsonify({"fehler": "Dieses Medium ist nicht (mehr) da."}), 400
+    if IMPORT["aktiv"]:
+        return jsonify({"fehler": "Erst den Import abwarten."}), 409
+    stand = sicherung_status()
+    if stand["aktiv"]:
+        return jsonify({"fehler": "Es läuft schon eine Sicherung."}), 409
+
+    # Das Protokoll leeren, bevor der Auftrag herausgeht: sonst stuende bis
+    # zum ersten Lebenszeichen des Skripts der Text des letzten Laufs da,
+    # und man haelt ihn fuer den aktuellen.
+    try:
+        SICHERUNG_LOG.write_text("Auftrag abgeschickt, der Dienst startet …\n",
+                                 encoding="utf-8")
+        SICHERUNG_STAND.write_text(json.dumps({
+            "aktiv": True, "schritt": "Auftrag abgeschickt", "schritt_nr": 0,
+            "schritte_gesamt": 6, "umfang": umfang, "ziel": ziel,
+            "begonnen": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+        }), encoding="utf-8")
+        # Erst schreiben, dann an seinen Platz schieben - sonst koennte die
+        # systemd-Regel eine halb geschriebene Datei erwischen.
+        halb = SICHERUNG_AUFTRAG.with_suffix(".teil")
+        halb.write_text(f"ziel={ziel}\numfang={umfang}\n", encoding="utf-8")
+        halb.replace(SICHERUNG_AUFTRAG)
+    except OSError as exc:
+        return jsonify({"fehler": f"Auftrag nicht ablegbar: {exc}"}), 500
+
+    app.logger.info("Sicherung angefordert: %s, Umfang %s", ziel, umfang)
+    return jsonify({"ok": True, "ziel": ziel, "umfang": umfang})
+
+
+# ------------------------------------------------------------- Ausschalten
+
+# Der Rechner steht kopflos im Schrank, es gibt keinen Bildschirm und
+# niemanden, der auf den Knopf drueckt.  Also sagt HomeAssistant Bescheid,
+# so wie es das beim Cast-Dongle schon tut.
+#
+# Heruntergefahren wird hier, ausgeschaltet aber nicht: `systemctl halt`
+# beendet alle Dienste, leert die Puffer und haengt die Dateisysteme
+# read-only ein - und laesst das Board danach unter Strom stehen.  Den Strom
+# nimmt die Steckdose selbst weg: der Rechner bestellt sich beim
+# Herunterfahren seinen eigenen Stromausfall (photoserver-steckdose.service
+# ruft steckdose.sh auf, siehe dort).  HomeAssistant muss danach nichts mehr
+# abpassen, es schaltet die Dose morgens nur wieder ein.
+#
+# Das ist kein Umweg, sondern der Weg zurueck.  Das BIOS kennt nur
+# "After Power Loss: Power On", und dieses Merkmal setzt es nur, wenn der
+# Strom im laufenden Betrieb verschwindet.  Nach einem echten `poweroff`
+# stuende der Rechner in S5, der Stromausfall zaehlte nicht, und beim
+# Wiedereinschalten der Dose bliebe er einfach aus.  Nach `halt` ist er aus
+# Sicht des Boards an - die Dose wird damit zum Einschalter.
+#
+# Geschrieben wird zu diesem Zeitpunkt nichts mehr; das harte Wegnehmen des
+# Stroms kostet keine Daten.
+#
+# Den Befehl gibt am Ende logind.  `systemctl halt` redet mit ihm nur
+# ueber den D-Bus - kein sudo, kein setuid.  Das ist der Grund fuer diesen
+# Weg: NoNewPrivileges=yes in der Unit bleibt damit unangetastet.  Erlaubt
+# wird der Aufruf durch die polkit-Regel 50-fotoserver-ausschalten.rules,
+# die `einrichten.sh` hinterlegt.
+AUSSCHALT_AKTION = "org.freedesktop.login1.halt"
+AUSSCHALT_FRIST = 2.0           # Sekunden zwischen Antwort und Halt
+STECKDOSE = BASE / "steckdose.sh"
+
+
+def steckdose_erreichbar():
+    """Antwortet die Steckdose, die uns gleich den Strom nehmen soll?
+
+    Bestellt wird hier nichts - das macht beim Herunterfahren
+    photoserver-steckdose.service, damit der Weg fuer alle gleich ist
+    (Desktop-Knopf, `systemctl halt`, diese Route).  Hier wird nur
+    nachgesehen, ob die Dose ueberhaupt erreichbar ist.
+
+    Der Grund fuer die Probe: geht die Bestellung spaeter im Funkloch
+    verloren, haelt der Rechner an, der Strom bleibt stehen, das BIOS
+    merkt sich keinen Stromausfall - und die Kiste kommt nie wieder hoch,
+    ohne dass jemand in den Schrank greift.  Lieber ein ehrlicher Fehler
+    an HomeAssistant als ein Rechner, den man nur noch von Hand weckt.
+
+    Rueckgabe wie ausschalten_erlaubt(): (ja, grund).
+    """
+    if not STECKDOSE.exists():
+        return True, ""                     # kein Skript, alter Weg
+    try:
+        fertig = subprocess.run([str(STECKDOSE), "pruefen"],
+                                capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"steckdose.sh nicht ausfuehrbar: {exc}"
+    if fertig.returncode == 0:
+        return True, ""
+    if fertig.returncode == 2:
+        # Keine Adresse eingetragen.  Dann besorgt den Strom jemand anders
+        # (frueher HomeAssistant) - das ist eine Entscheidung, keine Panne.
+        return True, ""
+    return False, (fertig.stdout or fertig.stderr).strip() or "keine Antwort"
+
+
+def ausschalten_erlaubt():
+    """Darf dieser Prozess den Rechner anhalten?
+
+    Fragt polkit, ohne etwas auszuloesen.  Ohne diese Probe bekaeme
+    HomeAssistant ein froehliches OK und der Rechner liefe weiter - der
+    Fehler faende sich nur im Journal.  Fehlt pkcheck, wird es einfach
+    versucht; die Antwort ist dann nur weniger ehrlich.
+    """
+    if shutil.which("pkcheck") is None:
+        return True, ""
+    try:
+        fertig = subprocess.run(
+            ["pkcheck", "--action-id", AUSSCHALT_AKTION,
+             "--process", str(os.getpid())],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return True, ""
+    if fertig.returncode == 0:
+        return True, ""
+    return False, (fertig.stderr or fertig.stdout).strip() or "polkit sagt nein"
+
+
+def _ausschalten_gleich():
+    """Laeuft im eigenen Faden, kurz nachdem die Antwort raus ist."""
+    try:
+        fertig = subprocess.run(["systemctl", "halt"],
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        app.logger.error("Ausschalten fehlgeschlagen: %s", exc)
+        return
+    if fertig.returncode != 0:
+        app.logger.error("Ausschalten fehlgeschlagen: %s",
+                         (fertig.stderr or fertig.stdout).strip())
+
+
+@app.route("/api/ausschalten", methods=["POST"])
+def api_ausschalten():
+    """Den ganzen Rechner herunterfahren - gedacht fuer HomeAssistant.
+
+    Faehrt bis zum Halt herunter, schaltet aber nicht ab; den Strom nimmt
+    die Steckdose kurz darauf selbst weg (siehe oben).  Ein "ok" heisst
+    also: der Rechner ist gleich still, und die Dose macht den Rest.
+
+    Nur POST, anders als /api/cast/wecken: eine Adresse, die einen Rechner
+    abschaltet, darf nicht durch einen Browser ausloesbar sein, der Links
+    im Voraus laedt.
+
+    Waehrend eines Imports wird abgelehnt - ein halb entpackter Takeout
+    kostet beim naechsten Lauf Stunden.  Mit {"trotzdem": true} bzw.
+    ?trotzdem=1 geht es dennoch.
+    """
+    daten = request.get_json(silent=True) or {}
+    wunsch = daten.get("trotzdem", request.args.get("trotzdem", ""))
+    trotzdem = str(wunsch).lower() in ("1", "true", "ja", "yes")
+    if IMPORT["aktiv"] and not trotzdem:
+        return jsonify({"fehler": "Es läuft ein Import.",
+                        "import": True}), 409
+
+    erlaubt, grund = ausschalten_erlaubt()
+    if not erlaubt:
+        return jsonify({
+            "fehler": f"Nicht erlaubt: {grund}",
+            "hinweis": "polkit-Regel fehlt - „Fotoserver einrichten“ starten.",
+        }), 503
+
+    # Erst nachsehen, ob die Steckdose antwortet.  Ohne sie wuerde der
+    # Rechner zwar sauber anhalten, aber nie wieder von allein hochfahren.
+    da, grund = steckdose_erreichbar()
+    if not da:
+        app.logger.error("Ausschalten abgelehnt, Steckdose: %s", grund)
+        return jsonify({
+            "fehler": f"Steckdose antwortet nicht: {grund}",
+            "hinweis": "Ohne sie bliebe der Rechner nach dem Halt aus.",
+            "steckdose": False,
+        }), 503
+
+    # Erst antworten, dann ausschalten.  Andersherum bricht die Verbindung
+    # mitten im Satz ab, und in HomeAssistant steht ein Fehler, obwohl alles
+    # geklappt hat.
+    cast_schalten(False)        # der Fernseher soll sich sauber verabschieden
+    app.logger.info("Ausschalten angefordert - in %.0f s ist Schluss.",
+                    AUSSCHALT_FRIST)
+    threading.Timer(AUSSCHALT_FRIST, _ausschalten_gleich).start()
+    return jsonify({"ok": True, "in_sekunden": AUSSCHALT_FRIST})
 
 
 @app.route("/favicon.ico")

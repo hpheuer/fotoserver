@@ -5,6 +5,8 @@ photos.db.vor-*
 cache/
 inbox/
 settings.json
+sicherung-stand.json
+sicherung-auftrag.*
 *.log
 unmatched_sidecars.txt
 __pycache__/
@@ -19,10 +21,17 @@ geo/*.zip
 # Maschinenspezifisch: enthalten Benutzernamen, Pfade, Adressen im Heimnetz
 # und Seriennummern. Im Repository stehen stattdessen die *.beispiel-Dateien.
 photoserver.service
+photoserver-sicherung.service
+photoserver-sicherung.path
+photoserver-steckdose.service
 samba-inbox.conf
 homeassistant.yaml
+50-fotoserver-ausschalten.rules
 einrichten.sh
 sicherung.sh
+sicherung-ersteinrichtung.sh
+smart.sh
+oberflaeche.sh
 
 # Projektnotizen mit persönlichen Angaben
 CLAUDE.md

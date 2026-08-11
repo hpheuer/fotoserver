@@ -103,6 +103,10 @@
   .melder { font-size:.9rem; }
   .melder.gut { color:var(--gut); }
   .melder.schlecht { color:var(--warn); }
+  /* Der Sicherungs-Melder wird lang ("… kann jetzt abgezogen werden") und
+     schöbe den Knopf neben sich herum. Eigene Zeile, feste Mindesthöhe:
+     dann steht alles still, ob dort etwas steht oder nicht. */
+  #sicherMelder { flex-basis:100%; min-height:1.35em; }
 
   .zahlen { display:grid; grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));
             gap:.9rem; }
@@ -263,6 +267,38 @@
   </section>
 
   <section>
+    <h2>Sicherung</h2>
+    <p class="hinweis" style="margin:0 0 1rem">
+      Kopiert auf eine angesteckte USB-Platte. Die Sicherung ist ein
+      Spiegel: was hier gelöscht wurde, verschwindet dort ebenfalls. Ältere
+      Stände von Code und Datenbank bleiben zusätzlich unter
+      <code>projekt-staende/</code> liegen. Läuft im Hintergrund, die
+      Slideshow bleibt erreichbar.
+    </p>
+    <div class="zeile">
+      <label class="feld" for="sicherZiel">Ziel</label>
+      <select id="sicherZiel"><option value="">— wird gesucht —</option></select>
+      <button type="button" id="sicherSuchen">Neu suchen</button>
+    </div>
+    <div class="zeile">
+      <label class="feld">Umfang</label>
+      <div class="modi" id="sicherUmfang">
+        <label><input type="radio" name="umfang" value="klein" checked>
+          <span>nur Datenbank und Einstellungen</span></label>
+        <label><input type="radio" name="umfang" value="alles">
+          <span>alles</span></label>
+      </div>
+    </div>
+    <div class="ablage" id="sicherAblage">wird geladen …</div>
+    <div class="knopfzeile" style="margin-top:1rem">
+      <button class="wichtig" id="sicherStart">Sicherung starten</button>
+      <span class="melder" id="sicherMelder"></span>
+    </div>
+    <div class="fortschritt" id="sicherBalkenHuelle" hidden><i id="sicherBalken"></i></div>
+    <pre class="log" id="sicherLog"></pre>
+  </section>
+
+  <section>
     <h2>Platz schaffen</h2>
     <p class="hinweis" style="margin:0 0 1rem">
       Nach dem Import wird der Takeout nicht mehr gebraucht — die Slideshow
@@ -401,10 +437,24 @@
     r.onchange = sichereAnzeige;
   }
 
-  function melde(id, text, gut) {
+  // Ein Ergebnis bleibt stehen: "fertig" ist kein Zwischenruf, sondern der
+  // Zustand, in dem die Seite jetzt ist.  Und es wird nur angefasst, wenn
+  // sich wirklich etwas geändert hat - sonst flackert es bei jedem Abruf,
+  // und alles darunter hüpft im Takt mit.
+  function zeigeMelder(id, text, art) {
     const el = $(id);
+    const klasse = "melder" + (art ? " " + art : "");
+    if (el.textContent === text && el.className === klasse) return;
     el.textContent = text;
-    el.className = "melder " + (gut ? "gut" : "schlecht");
+    el.className = klasse;
+  }
+
+  // Kurze Quittung, die von allein wieder geht: "Gespeichert.", "Gerät
+  // gemerkt." - Sätze, die niemand zweimal lesen muss.  Für Ergebnisse
+  // eines Laufs ist zeigeMelder zuständig.
+  function melde(id, text, gut) {
+    zeigeMelder(id, text, gut ? "gut" : "schlecht");
+    const el = $(id);
     if (gut) setTimeout(() => { if (el.textContent === text) el.textContent = ""; }, 4000);
   }
 
@@ -451,12 +501,11 @@
       const anteil = s.schritte_gesamt
         ? Math.max(0, (s.schritt_nr - 1)) / s.schritte_gesamt * 100 : 0;
       $("balken").style.width = anteil + "%";
-      melde("importMelder",
-            `Schritt ${s.schritt_nr}/${s.schritte_gesamt}: ${s.schritt || ""}`, true);
-      $("importMelder").className = "melder";
+      zeigeMelder("importMelder",
+                  `Schritt ${s.schritt_nr}/${s.schritte_gesamt}: ${s.schritt || ""}`, "");
     } else if (s.beendet) {
-      melde("importMelder", `${s.meldung || "Fertig."} (${s.beendet})`, !!s.erfolg);
-      $("importMelder").className = "melder " + (s.erfolg ? "gut" : "schlecht");
+      zeigeMelder("importMelder", `${s.meldung || "Fertig."} (${s.beendet})`,
+                  s.erfolg ? "gut" : "schlecht");
     }
     const log = $("importLog");
     const unten = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
@@ -680,9 +729,8 @@
         if (!ev.lengthComputable) return;
         $("ladeHuelle").hidden = false;
         $("ladebalken").style.width = (ev.loaded / ev.total * 100) + "%";
-        melde("importMelder",
-              `Übertragen: ${gb(ev.loaded)} von ${gb(ev.total)}`, true);
-        $("importMelder").className = "melder";
+        zeigeMelder("importMelder",
+                    `Übertragen: ${gb(ev.loaded)} von ${gb(ev.total)}`, "");
       };
       x.onload = () => {
         $("ladeHuelle").hidden = true;
@@ -727,6 +775,166 @@
     starteImport();
   };
 
+  // ------------------------------------------------------------- Sicherung
+
+  // Der Server schreibt nur einen Auftrag; gesichert wird von einem
+  // systemd-Dienst als root (siehe viewer.py, Abschnitt Sicherung). Hier
+  // gibt es deshalb keinen Abbruch-Knopf: was einmal läuft, läuft durch.
+  let medien = [], sicherUhr = null;
+
+  function gewaehltesMedium() {
+    return medien.find(m => m.id === $("sicherZiel").value) || null;
+  }
+
+  function zeichneMedien(neu) {
+    const liste = $("sicherZiel");
+    // Nur neu zeichnen, wenn sich wirklich etwas angesteckt hat - sonst
+    // klappte die Auswahlliste alle paar Sekunden unter der Hand zu.
+    const kennung = neu.map(m => m.id).join("|");
+    const gleich = kennung === medien.map(m => m.id).join("|")
+                   && liste.options.length;
+    medien = neu;
+    if (gleich) { zeichneSicherAblage(); return; }
+    const vorher = liste.value;
+    liste.innerHTML = "";
+    if (!medien.length) {
+      liste.add(new Option("— kein USB-Datenträger angesteckt —", ""));
+    } else {
+      for (const m of medien) {
+        const name = [m.modell || "USB-Datenträger", m.etikett]
+          .filter(Boolean).join(" · ");
+        liste.add(new Option(`${name} (${gb(m.bytes)}, ${m.dateisystem})`, m.id));
+      }
+      if (medien.some(m => m.id === vorher)) liste.value = vorher;
+    }
+    zeichneSicherAblage();
+  }
+
+  function zeichneSicherAblage() {
+    const m = gewaehltesMedium();
+    const umfang = document.querySelector("input[name=umfang]:checked");
+    const klein = !umfang || umfang.value === "klein";
+    const teile = [];
+    if (!m) {
+      teile.push(`<div class="satz">Kein USB-Datenträger gefunden. Platte
+        anstecken, dann „Neu suchen“. Zur Wahl steht, was am USB hängt und
+        ein beschreibbares Dateisystem hat — ein Installationsstick oder
+        eine unformatierte Platte also nicht. Formatiert wird von hier aus
+        nie; dafür gibt es das Skript am Rechner selbst.</div>`);
+    } else {
+      teile.push(satz("Gerät", m.geraet));
+      teile.push(satz("Dateisystem", m.dateisystem
+        + (m.eingehaengt ? ` · eingehängt unter ${m.eingehaengt}` : "")));
+      teile.push(satz("Größe", gb(m.bytes)
+        + (m.frei != null ? ` · ${gb(m.frei)} frei` : "")));
+      if (m.fremd) {
+        teile.push(satz("<b>Kein Linux-Dateisystem</b> — Besitzrechte und "
+          + "Verknüpfungen wandern nicht mit", "", ""));
+      }
+      teile.push(satz(klein
+        ? "Übertragen werden photos.db und die Projektdateien — wenige Minuten."
+        : "Übertragen wird das ganze Benutzerverzeichnis samt Takeout und "
+          + "Thumbnails. Beim ersten Mal dauert das eine Stunde und mehr.",
+        "", "bereit"));
+    }
+    $("sicherAblage").innerHTML = teile.join("");
+  }
+
+  function ladeMedien() {
+    $("sicherSuchen").disabled = true;
+    return fetch("/api/sicherung").then(r => r.json()).then(s => {
+      zeichneMedien(s.medien || []);
+      zeichneSicherung(s);
+      return s;
+    }).catch(() => {
+      $("sicherAblage").textContent = "Datenträger nicht abfragbar.";
+    }).finally(() => { $("sicherSuchen").disabled = false; });
+  }
+
+  function zeichneSicherung(s) {
+    const laeuft = s.aktiv;
+    $("sicherStart").disabled = laeuft || !s.eingerichtet;
+    $("sicherStart").textContent = laeuft ? "läuft …" : "Sicherung starten";
+    $("sicherBalkenHuelle").hidden = !laeuft;
+    if (!s.eingerichtet) {
+      zeigeMelder("sicherMelder",
+                  "Einmalig „Fotoserver einrichten“ starten — sonst holt "
+                  + "niemand den Auftrag ab.", "schlecht");
+    } else if (laeuft) {
+      const anteil = s.schritte_gesamt
+        ? Math.max(0, s.schritt_nr - 1) / s.schritte_gesamt * 100 : 0;
+      $("sicherBalken").style.width = anteil + "%";
+      zeigeMelder("sicherMelder", s.wartet && !s.schritt_nr
+        ? "Auftrag abgeschickt …"
+        : `Schritt ${s.schritt_nr}/${s.schritte_gesamt}: ${s.schritt || ""}`, "");
+    } else if (s.beendet || s.meldung) {
+      zeigeMelder("sicherMelder", `${s.meldung || "Fertig."}`
+                  + `${s.beendet ? " (" + s.beendet + ")" : ""}`,
+                  s.erfolg ? "gut" : "schlecht");
+    }
+    // Auch das Protokoll nur anfassen, wenn sich etwas geändert hat:
+    // textContent neu zu setzen baut den Textknoten neu auf und wirft eine
+    // hochgescrollte Ansicht jedes Mal wieder nach oben.
+    const log = $("sicherLog");
+    const text = (s.zeilen || []).join("\n");
+    if (log.textContent !== text) {
+      const unten = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+      log.textContent = text;
+      if (unten) log.scrollTop = log.scrollHeight;
+    }
+  }
+
+  // Während eines Laufs zählt nur der Fortschritt; steht nichts an, wird die
+  // ganze Auskunft geholt - dann taucht eine eben angesteckte Platte von
+  // allein in der Liste auf, ohne „Neu suchen“.
+  function frageSicherung() {
+    const laeuft = !$("sicherBalkenHuelle").hidden;
+    const woher = laeuft ? "/api/sicherung/status" : "/api/sicherung";
+    return fetch(woher).then(r => r.json()).then(s => {
+      if (s.medien) zeichneMedien(s.medien);
+      zeichneSicherung(s);
+      clearTimeout(sicherUhr);
+      sicherUhr = setTimeout(frageSicherung, s.aktiv ? 1500 : 15000);
+    }).catch(() => {});
+  }
+
+  $("sicherSuchen").onclick = ladeMedien;
+  $("sicherZiel").onchange = zeichneSicherAblage;
+  for (const r of document.querySelectorAll("input[name=umfang]")) {
+    r.onchange = zeichneSicherAblage;
+  }
+
+  $("sicherStart").onclick = () => {
+    const m = gewaehltesMedium();
+    if (!m) { zeigeMelder("sicherMelder", "Erst ein Ziel wählen.", "schlecht"); return; }
+    const umfang = document.querySelector("input[name=umfang]:checked").value;
+    const frage = umfang === "alles"
+      ? `Das ganze Benutzerverzeichnis auf ${m.modell || m.geraet} sichern?\n\n`
+        + "Alles, was dort nicht mehr hierher passt, wird gelöscht — die "
+        + "Sicherung ist ein Spiegel."
+      : `Datenbank und Einstellungen auf ${m.modell || m.geraet} sichern?`;
+    if (!confirm(frage)) return;
+    $("sicherStart").disabled = true;
+    fetch("/api/sicherung/start", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ziel: m.id, umfang}),
+    }).then(r => r.json().then(a => ({ok: r.ok, a}))).then(({ok, a}) => {
+      if (!ok) {
+        zeigeMelder("sicherMelder", (a.fehler || "Start fehlgeschlagen.")
+                    + (a.hinweis ? " " + a.hinweis : ""), "schlecht");
+        $("sicherStart").disabled = false;
+        return;
+      }
+      frageSicherung();
+    }).catch(() => {
+      zeigeMelder("sicherMelder", "Start fehlgeschlagen.", "schlecht");
+      $("sicherStart").disabled = false;
+    });
+  };
+
+  ladeMedien().then(frageSicherung);
+
   // ---------------------------------------------------------- Platz schaffen
 
   function wirfWeg(was, frage) {
@@ -736,10 +944,11 @@
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({was, bestaetigt: "LOESCHEN"}),
     }).then(r => r.json().then(a => ({ok: r.ok, a}))).then(({ok, a}) => {
-      melde("wegMelder", ok ? `${gb(a.bytes)} frei geworden.`
-                            : (a.fehler || "Fehlgeschlagen."), ok);
+      zeigeMelder("wegMelder", ok ? `${gb(a.bytes)} frei geworden.`
+                                  : (a.fehler || "Fehlgeschlagen."),
+                  ok ? "gut" : "schlecht");
       ladeAblage();
-    }).catch(() => melde("wegMelder", "Fehlgeschlagen.", false));
+    }).catch(() => zeigeMelder("wegMelder", "Fehlgeschlagen.", "schlecht"));
   }
 
   $("wegBaum").onclick = () => wirfWeg("baum",

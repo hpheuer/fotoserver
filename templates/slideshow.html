@@ -11,9 +11,14 @@
        stehen in settings.json und ueberleben einen Neustart. */
     --info-skala: 1;
     --leiste-skala: 1;
+    /* Vom Skript gesetzt, damit die Leiste auch auf ein Handy passt - siehe
+       "Bedienleiste einpassen".  Von Hand gezogene Groesse mal automatische
+       Verkleinerung ergibt, was wirklich zu sehen ist. */
+    --leiste-auto: 1;
+    --leiste-eff: calc(var(--leiste-skala) * var(--leiste-auto));
     /* unsichtbarer Greifrand um die Bedienleiste: hier zieht man ihre
        Groesse, ohne einen Knopf zu treffen */
-    --greif: calc(1.5rem * var(--leiste-skala));
+    --greif: calc(1.5rem * var(--leiste-eff));
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -64,6 +69,12 @@
   }
   .info.sichtbar { opacity: 1; }
   .info.leer { display: none; }
+  /* Umgebrochene Bedienleiste: sie reicht dann quer über den Bildschirm,
+     die Beschriftung muss darüber. --leiste-hoehe setzt das Skript. */
+  body.leiste-umbruch .info {
+    bottom: calc(var(--rand) + var(--leiste-hoehe, 0px) + .5rem);
+    max-width: calc(100vw - 2 * var(--rand));
+  }
   /* Im Ruhezustand ist die Beschriftung nur Deko und darf keine Tipps
      aufs Bild abfangen. */
   body.ruhe .info { pointer-events: none; }
@@ -91,9 +102,9 @@
   body.bearbeiten .leistezone { display: none; }
 
   .leiste {
-    display: flex; align-items: center; gap: calc(.5rem * var(--leiste-skala));
-    padding: calc(.45rem * var(--leiste-skala)) calc(.55rem * var(--leiste-skala));
-    border-radius: calc(14px * var(--leiste-skala));
+    display: flex; align-items: center; gap: calc(.5rem * var(--leiste-eff));
+    padding: calc(.45rem * var(--leiste-eff)) calc(.55rem * var(--leiste-eff));
+    border-radius: calc(14px * var(--leiste-eff));
     background: rgba(0,0,0,.5);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -101,17 +112,23 @@
     transition: opacity .3s ease, transform .3s ease;
   }
   body:not(.ruhe) .leiste { opacity: 1; transform: none; }
+  /* Zwei Reihen statt einer, wenn die Knoepfe sonst zu klein wuerden.
+     Rechtsbuendig, damit die Leiste in ihrer Ecke kleben bleibt. */
+  .leiste.umbruch { flex-wrap: wrap; justify-content: flex-end; }
 
   .leiste button, .leiste a {
     display: flex; align-items: center; justify-content: center;
-    min-width: calc(3rem * var(--leiste-skala));
-    height: calc(3rem * var(--leiste-skala));
-    padding: 0 calc(.7rem * var(--leiste-skala));
-    border: 0; border-radius: calc(10px * var(--leiste-skala));
+    min-width: calc(3rem * var(--leiste-eff));
+    height: calc(3rem * var(--leiste-eff));
+    padding: 0 calc(.7rem * var(--leiste-eff));
+    border: 0; border-radius: calc(10px * var(--leiste-eff));
     background: rgba(255,255,255,.09); color: #fff;
-    font: inherit; font-size: calc(1.5rem * var(--leiste-skala));
+    font: inherit; font-size: calc(1.5rem * var(--leiste-eff));
     line-height: 1; cursor: pointer; text-decoration: none;
   }
+  /* display:flex oben ueberschreibt das eingebaute [hidden] des Browsers -
+     ohne diese Zeile stuende der Fernseh-Knopf immer in der Leiste. */
+  .leiste button[hidden] { display: none; }
   .leiste button:hover, .leiste a:hover { background: rgba(255,255,255,.2); }
   .leiste button:active { background: rgba(255,255,255,.3); }
   .leiste .titel { font-size: .95rem; opacity: .75; padding: 0 .5rem 0 .3rem; }
@@ -962,7 +979,12 @@
     return fetch("/api/cast").then(r => r.json()).then(c => {
       const warVerbunden = cast && cast.verbunden;
       cast = c;
-      $("kCast").hidden = !c.an;
+      // Kommt der Fernseh-Knopf dazu oder fällt er weg, ändert sich die
+      // Breite der Leiste - auf dem Handy entscheidet das über den Umbruch.
+      if ($("kCast").hidden !== !c.an) {
+        $("kCast").hidden = !c.an;
+        leisteAnpassen();
+      }
       $("kCast").title = c.verbunden
         ? "Dem Fernseher folgen" : "Fernseher nicht verfügbar";
       $("kCast").style.opacity = castFolgen ? "1" : (c.verbunden ? ".45" : ".2");
@@ -1056,7 +1078,63 @@
     skala[welche] = wert;
     document.documentElement.style.setProperty(
       "--" + welche + "-skala", wert.toFixed(3));
+    if (welche === "leiste") leisteAnpassen();
   }
+
+  // ------------------------------------------------- Bedienleiste einpassen
+
+  // Sieben Knöpfe nebeneinander sind breiter als ein Handy im Hochformat -
+  // die letzten lägen außerhalb des Bildschirms, und ausgerechnet dort steht
+  // das Zahnrad. Deshalb wird die Leiste automatisch so weit verkleinert,
+  // bis sie passt. Würden die Knöpfe dabei zu klein für einen Finger, kommt
+  // stattdessen ein Umbruch: zwei Reihen übereinander, in voller Größe.
+  //
+  // Die gezogene Größe bleibt davon unberührt - sie steht weiter in
+  // settings.json und gilt wieder, sobald genug Platz da ist.
+  const KNOPF_KLEINST = 40;      // Pixel; darunter trifft der Finger nicht
+  const LEISTE_REIHE  = 4 / 7;   // die breitere der zwei Reihen: vier Knöpfe
+
+  function leisteAnpassen() {
+    const leiste = $("leiste"), wurzel = document.documentElement;
+    // Erst zurücksetzen, dann messen: gesucht ist die Breite bei voller
+    // Größe, nicht die von der letzten Verkleinerung.
+    wurzel.style.setProperty("--leiste-auto", "1");
+    leiste.classList.remove("umbruch");
+    leiste.style.maxWidth = "";
+    const rand  = 0.03 * Math.min(innerWidth, innerHeight);   // --rand: 3vmin
+    const platz = innerWidth - 2 * rand;
+    const breit = leiste.scrollWidth;      // liest den Wert und misst damit
+    const knopf = leiste.querySelector("button").getBoundingClientRect().width;
+
+    let auto = 1, umbruch = false;
+    if (breit > platz) {
+      auto = platz / breit;
+      // Wie klein die Knöpfe dabei würden, entscheidet über den Umbruch -
+      // gemessen in Pixeln, nicht in Prozent: bei von Hand kleingezogener
+      // Leiste ist ein Zehntel weniger etwas ganz anderes als bei großer.
+      if (auto * knopf < KNOPF_KLEINST) {
+        // Zwei Reihen, aber nie kleiner als ein Finger braucht - reicht der
+        // Platz auch dafür nicht, bricht die Leiste eben ein drittes Mal um.
+        auto = Math.min(1, Math.max(platz / (breit * LEISTE_REIHE),
+                                    KNOPF_KLEINST / knopf));
+        umbruch = true;
+        leiste.classList.add("umbruch");
+        leiste.style.maxWidth = Math.round(platz) + "px";
+      }
+      wurzel.style.setProperty("--leiste-auto", auto.toFixed(3));
+    }
+    // Zwei Reihen reichen quer über den Bildschirm und lägen sonst über der
+    // Beschriftung unten links - die rutscht dafür ein Stockwerk höher.
+    document.body.classList.toggle("leiste-umbruch", umbruch);
+    wurzel.style.setProperty("--leiste-hoehe", leiste.offsetHeight + "px");
+  }
+
+  // Drehen des Tablets, Vollbild, ein aufgetauchter Fernseh-Knopf: alles
+  // ändert die nötige Breite.
+  addEventListener("resize", leisteAnpassen);
+  addEventListener("orientationchange", leisteAnpassen);
+  document.addEventListener("fullscreenchange", leisteAnpassen);
+  leisteAnpassen();
 
   // Beim Ziehen fallen Dutzende Zwischenwerte an - gespeichert wird erst,
   // wenn die Hand einen Moment still war.

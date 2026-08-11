@@ -1,0 +1,19 @@
+[Unit]
+Description=Wartet auf einen Sicherungsauftrag aus dem Webinterface
+Documentation=file:/home/BENUTZER/photoserver/sicherung.sh
+
+# Der Viewer laeuft als BENUTZER, mit NoNewPrivileges - er kann keine Platte
+# einhaengen und soll es auch nicht koennen.  Statt ihm Rechte zu geben,
+# legt er eine Datei ab: sicherung-auftrag.txt, zwei Zeilen, Ziel und
+# Umfang.  Dieses Wachen sieht sie auftauchen und startet den Lauf als root.
+#
+# So bleibt die Grenze klar: der Webdienst darf einen Auftrag stellen, mehr
+# nicht.  Was daraus wird, entscheidet sicherung.sh - dort wird geprueft,
+# ob das Ziel wirklich ein USB-Datentraeger und nicht die Systemplatte ist.
+
+[Path]
+PathExists=/home/BENUTZER/photoserver/sicherung-auftrag.txt
+Unit=photoserver-sicherung.service
+
+[Install]
+WantedBy=multi-user.target
