@@ -9,6 +9,10 @@ sicherung-stand.json
 sicherung-auftrag.*
 *.log
 unmatched_sidecars.txt
+# Stand des Pruefsummenlaufs: Dateipfade der Bibliothek, mehrere MB.
+pruefsummen-stand.tsv
+# Gelesene Takeout-Archive samt Hashes, wird neu aufgebaut.
+abgleich-stand.tsv
 __pycache__/
 *.pyc
 

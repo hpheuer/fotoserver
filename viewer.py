@@ -228,6 +228,25 @@ def schema_sicherstellen():
         weg = {r[1] for r in conn.execute("PRAGMA table_info(geloescht)")}
         if "endgueltig_at" not in weg:
             conn.execute("ALTER TABLE geloescht ADD COLUMN endgueltig_at TEXT")
+
+        # geloescht_am: bei Google verschwunden, vom Takeout-Abgleich
+        # gesetzt.  Das ist etwas anderes als die Streichliste oben - die
+        # ist der Papierkorb, also eine Entscheidung von Hand, und sie gilt
+        # fuer immer.  Hier steht nur "stand im letzten Takeout nicht mehr
+        # drin"; taucht die Datei in einem spaeteren Export wieder auf,
+        # setzt der Abgleich die Spalte zurueck auf NULL.  Deshalb eine
+        # Spalte an photos und kein Eintrag in geloescht: sonst muesste
+        # der Papierkorb Eintraege anzeigen, die niemand dorthin gelegt
+        # hat, und ein Wiederherstellen haette zwei Bedeutungen.
+        #
+        # Ein eigener Index braucht es nicht.  Gefragt wird immer nach
+        # IS NULL, und das ist bei 24.000 Zeilen der Normalfall - dafuer
+        # liest SQLite ohnehin die Tabelle.  Der Index auf sha256 steht
+        # schon da: die Spalte ist UNIQUE, SQLite legt ihn selbst an.
+        if "geloescht_am" not in {r[1] for r in
+                                  conn.execute("PRAGMA table_info(photos)")}:
+            conn.execute("ALTER TABLE photos ADD COLUMN geloescht_am TEXT")
+            print("Spalte angelegt: geloescht_am")
         conn.commit()
     finally:
         conn.close()
@@ -448,8 +467,14 @@ def ausdruecke():
 
 # Gestrichene Bilder tauchen nirgends mehr auf.  Der Abgleich laeuft ueber
 # den SHA-256, damit er einen erneuten Import derselben Datei ueberlebt.
+#
+# Zwei Wege fuehren hierher: der Papierkorb (Streichliste, von Hand) und
+# der Takeout-Abgleich (geloescht_am, weil das Bild bei Google weg ist).
+# Beide verstecken das Bild gleich gruendlich, nur zuruecknehmen laesst
+# sich jeder auf seine Weise.
 NICHT_GELOESCHT = ("NOT EXISTS (SELECT 1 FROM geloescht g"
-                   " WHERE g.sha256 = p.sha256)")
+                   " WHERE g.sha256 = p.sha256)"
+                   " AND p.geloescht_am IS NULL")
 
 
 IN_KEINEM_ALBUM = ("NOT EXISTS (SELECT 1 FROM photo_albums a"
