@@ -10,6 +10,7 @@ Aufruf:
     python3 import_photos.py                 # Vollimport
     python3 import_photos.py --limit 200     # Testlauf
     python3 import_photos.py --stats         # nur Auswertung der DB
+    python3 import_photos.py --datumsregeln  # nur das Anzeigedatum neu setzen
 """
 
 import argparse
@@ -227,21 +228,48 @@ EXIF_TAGS = [
 
 
 def exif_batch(paths):
-    """Metadaten fuer eine Liste von Dateien holen -> dict pfad -> tags."""
+    """Metadaten fuer eine Liste von Dateien holen -> dict pfad -> tags.
+
+    Ein stilles {} waere hier der teuerste Fehler: ein Zeitueberschreiten
+    oder eine kaputte JSON-Ausgabe betraefe das ganze Haeppchen von bis zu
+    EXIFTOOL_CHUNK Dateien.  Im Import fehlten deren Metadaten dauerhaft -
+    beim naechsten Lauf gelten die Dateien als unveraendert und werden nie
+    nachgezogen -, im Abgleich waeren sie unpaarbar und gaelten als
+    geloescht.  Deshalb wird ein Fehlschlag halbiert und einzeln
+    wiederholt; was dann noch fehlt, wird gemeldet und nicht verschwiegen.
+    """
     if not paths:
         return {}
     cmd = ["exiftool", "-j", "-n", "-q", "-q",
            "-charset", "filename=utf8", "-api", "QuickTimeUTC=1"] + EXIF_TAGS
     cmd += [str(p) for p in paths]
+    records = None
     try:
         res = subprocess.run(cmd, capture_output=True, timeout=600)
         out = res.stdout.decode("utf-8", "replace").strip()
-        if not out:
-            return {}
-        records = json.loads(out)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError):
+        records = json.loads(out) if out else []
+    except (subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        grund = type(exc).__name__
+    else:
+        grund = "keine Ausgabe" if not records else None
+
+    if grund is not None:
+        if len(paths) > 1:
+            # Halbieren statt aufgeben: meist haengt es an einer einzigen
+            # Datei, und der Rest des Haeppchens ist tadellos.
+            mitte = len(paths) // 2
+            ergebnis = exif_batch(paths[:mitte])
+            ergebnis.update(exif_batch(paths[mitte:]))
+            return ergebnis
+        log(f"exiftool scheitert an {paths[0]} ({grund}) - uebersprungen.")
         return {}
-    return {r.get("SourceFile"): r for r in records if r.get("SourceFile")}
+
+    ergebnis = {r.get("SourceFile"): r for r in records if r.get("SourceFile")}
+    fehlend = [str(p) for p in paths if str(p) not in ergebnis]
+    if fehlend:
+        log(f"exiftool lieferte zu {len(fehlend)} von {len(paths)} Dateien "
+            f"nichts, z. B. {fehlend[0]}")
+    return ergebnis
 
 
 # --------------------------------------------------------------- Datenbank
@@ -266,7 +294,9 @@ CREATE TABLE IF NOT EXISTS photos (
     camera_model  TEXT,
     orientation   INTEGER,
     first_seen    TEXT,
-    last_seen     TEXT
+    last_seen     TEXT,
+    display_date     TEXT,
+    date_confidence  TEXT
 );
 CREATE TABLE IF NOT EXISTS files (
     path    TEXT PRIMARY KEY,
@@ -292,8 +322,27 @@ def open_db(path):
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    # Der Viewer haelt die Datenbank waehrend eines Imports offen.  Ohne
+    # Wartezeit bricht der erste Schreibzugriff sofort mit "database is
+    # locked" ab, statt die paar Millisekunden abzuwarten.
+    conn.execute("PRAGMA busy_timeout=10000")
     conn.executescript(SCHEMA)
+    spalten_nachruesten(conn)
     return conn
+
+
+def spalten_nachruesten(conn):
+    """Spalten, die es beim Anlegen der Datenbank noch nicht gab.
+
+    CREATE TABLE IF NOT EXISTS ruehrt eine vorhandene Tabelle nicht an -
+    fuer gewachsene Datenbanken braucht es das hier.
+    """
+    vorhanden = {r[1] for r in conn.execute("PRAGMA table_info(photos)")}
+    for spalte, typ in (("display_date", "TEXT"), ("date_confidence", "TEXT")):
+        if spalte not in vorhanden:
+            conn.execute(f"ALTER TABLE photos ADD COLUMN {spalte} {typ}")
+            log(f"Spalte angelegt: {spalte}")
+    conn.commit()
 
 
 # ------------------------------------------------------------------- Import
@@ -470,14 +519,23 @@ def run_import(source, db_path, limit=None):
 
             if stop:
                 break
-            conn.commit()
+            # Ein Testlauf mit --limit darf nichts hinterlassen: er sieht nur
+            # die ersten paar hundert Dateien und traege die Datenbank sonst
+            # in einen Zustand, den kein vollstaendiger Lauf je erzeugt.
+            if not limit:
+                conn.commit()
             done = stats["seen"]
             if done % 1500 < EXIFTOOL_CHUNK:
                 rate = done / max(time.time() - start, 1)
                 rest = (total - done) / rate if rate else 0
                 log(f"{done}/{total}  ({rate:.0f}/s, noch ~{rest/60:.0f} min)")
 
-    conn.commit()
+    if limit:
+        conn.rollback()
+        log("--limit: Testlauf, nichts gespeichert.")
+    else:
+        conn.commit()
+        datumsregeln(conn)
 
     if unmatched:
         report = db_path.parent / "unmatched_sidecars.txt"
@@ -506,6 +564,73 @@ def run_import(source, db_path, limit=None):
     for k, v in sorted(geo_src.items(), key=lambda x: -x[1]):
         print(f"    {k:28} {v}")
     conn.close()
+
+
+# ------------------------------------------------------- Datum fuer die Anzeige
+
+# taken_at ist nicht immer das Aufnahmedatum.  display_date und
+# date_confidence sagen, was davon angezeigt werden darf; sortiert wird im
+# Viewer immer nach display_date.  Bis August 2026 wurden beide Spalten von
+# Hand gesetzt - das fiel bei jedem neuen Takeout erneut an und fehlte in
+# einer frisch angelegten Datenbank ganz.  Jetzt macht es der Import.
+
+# Messenger-Bilder ohne EXIF: UUID-Dateinamen, Laengsseite auf 1600 px
+# gekappt, kein camera_model.  Ihr taken_at ist das Empfangs- und nicht das
+# Aufnahmedatum, das echte ist nicht rekonstruierbar - deshalb wird kein
+# Datum angezeigt und keines geraten.  Erkannt wird die Gruppe am fehlenden
+# camera_model innerhalb ihres Zeitraums; der Dateiname muss dafuer nicht
+# geprueft werden, das Fenster genuegt (nachgerechnet: genau die 710).
+UNSICHER_VON = "2018-12-01"
+UNSICHER_BIS = "2019-04-01"
+
+# Alben, deren Name das Jahr verbuergt und deren Bilder ein falsches
+# taken_at tragen (abfotografiert oder eingescannt).  Bewusst eine Liste
+# und keine Regel auf ^\d{4}: "2019 Toskana" enthaelt echte Aufnahmen von
+# 2019, deren Datum stimmt.
+JAHR_ALBEN = {
+    "1991 Hawaii": ("1991-07-01 12:00:00", "jahr"),
+}
+
+
+def datumsregeln(conn):
+    """display_date und date_confidence setzen.
+
+    Von Hand Eingetragenes (hand_date) bleibt aussen vor - der Edit-Modus
+    hat Vorrang, sonst riebe jeder Import die Korrekturen wieder weg.
+    Die Reihenfolge ist Absicht: erst der Normalfall, dann die Ausnahmen.
+    """
+    hand = ("hand_date" in {r[1] for r in conn.execute(
+        "PRAGMA table_info(photos)")})
+    nur_ohne_hand = " AND hand_date IS NULL" if hand else ""
+
+    # 1. Normalfall: das EXIF-Datum stimmt.
+    conn.execute(
+        "UPDATE photos SET display_date = taken_at, date_confidence = 'exakt'"
+        f" WHERE taken_at IS NOT NULL{nur_ohne_hand}")
+
+    # 2. Empfangsdatum statt Aufnahmedatum -> kein Datum anzeigen.
+    #    display_date bleibt dabei stehen!  Der Viewer blendet das Datum
+    #    schon wegen date_confidence aus, sortiert aber nach display_date -
+    #    stuende hier NULL, ruschten die 710 Bilder an den Anfang der
+    #    chronologischen Playlist.
+    conn.execute(
+        "UPDATE photos SET date_confidence = 'unsicher'"
+        " WHERE camera_model IS NULL AND taken_at >= ? AND taken_at < ?"
+        f"{nur_ohne_hand}", (UNSICHER_VON, UNSICHER_BIS))
+
+    # 3. Alben, die nur das Jahr verbuergen.
+    for album, (datum, sicherheit) in JAHR_ALBEN.items():
+        conn.execute(
+            "UPDATE photos SET display_date = ?, date_confidence = ?"
+            " WHERE id IN (SELECT photo_id FROM photo_albums WHERE album = ?)"
+            f"{nur_ohne_hand}", (datum, sicherheit, album))
+    conn.commit()
+
+    verteilung = dict(conn.execute(
+        "SELECT COALESCE(date_confidence, 'offen'), COUNT(*) FROM photos"
+        " GROUP BY 1"))
+    log("Anzeigedatum: " + ", ".join(f"{k} {v}" for k, v in
+                                     sorted(verteilung.items())))
 
 
 # ------------------------------------------------------------------- Statistik
@@ -544,10 +669,16 @@ def main():
     ap.add_argument("--db", type=Path, default=DEFAULT_DB)
     ap.add_argument("--limit", type=int, help="nur N Dateien (Testlauf)")
     ap.add_argument("--stats", action="store_true", help="nur Auswertung")
+    ap.add_argument("--datumsregeln", action="store_true",
+                    help="nur display_date/date_confidence neu setzen")
     args = ap.parse_args()
 
     if args.stats:
         show_stats(args.db)
+    elif args.datumsregeln:
+        conn = open_db(args.db)
+        datumsregeln(conn)
+        conn.close()
     else:
         run_import(args.source, args.db, args.limit)
 

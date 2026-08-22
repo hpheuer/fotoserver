@@ -77,10 +77,21 @@ def build_one(job):
                 copy.thumbnail((edge, edge), Image.LANCZOS)
                 if copy.mode != "RGB":
                     copy = copy.convert("RGB")
-                tmp = out.with_suffix(".tmp")
-                copy.save(tmp, "JPEG", quality=QUALITY[name],
-                          optimize=True, progressive=(name == "display"))
-                os.replace(tmp, out)
+                # Der Name traegt die Prozessnummer: zwei Laeufe
+                # gleichzeitig (Dock und Webinterface) schrieben sonst in
+                # dieselbe Zwischendatei, und os.replace beforderte ein
+                # halbes Bild an seinen Platz.
+                tmp = out.with_suffix(f".{os.getpid()}.tmp")
+                try:
+                    copy.save(tmp, "JPEG", quality=QUALITY[name],
+                              optimize=True, progressive=(name == "display"))
+                    os.replace(tmp, out)
+                except BaseException:
+                    # Sonst bliebe die halbe Zwischendatei im Cache liegen;
+                    # aufgeraeumt wuerde sie nie, der Name kommt kein
+                    # zweites Mal vor.
+                    tmp.unlink(missing_ok=True)
+                    raise
         return photo_id, "ok", None
 
     except Exception as exc:                      # defekte Datei, Format, Speicher
@@ -102,7 +113,7 @@ def run(limit=None, force=False, workers=None):
     if not HEIF:
         log("WARNUNG: pillow-heif fehlt, HEIC-Dateien werden scheitern.")
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     ensure_columns(conn)
 
     if force:
@@ -181,7 +192,7 @@ def show_stats(conn=None):
     if conn is None:
         if not DB_PATH.exists():
             sys.exit(f"Keine Datenbank unter {DB_PATH}")
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         close = True
 
     print("\n  Status:")

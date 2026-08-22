@@ -291,6 +291,9 @@
     display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
   }
   .dialog footer .rechts { margin-left: auto; display: flex; gap: .7rem; }
+  .dialog footer .seite { color: #8b9096; font-size: .85rem; min-width: 9rem; }
+  .dialog button.pfeil { padding: .55rem .8rem; font-size: 1.05rem; line-height: 1; }
+  .dialog button:disabled { opacity: .35; cursor: default; }
   .dialog button {
     background: #2a2f36; color: #e8e8e8; border: 1px solid #2c2f34;
     border-radius: 6px; padding: .55rem 1.1rem; font: inherit; cursor: pointer;
@@ -308,6 +311,12 @@
   }
   .kacheln figure img { width: 100%; height: 6.5rem; object-fit: cover; display: block;
                         opacity: .45; transition: opacity .15s; }
+  .kacheln figcaption {
+    padding: .25rem .4rem .35rem; font-size: .72rem; line-height: 1.25;
+    color: #8b9096; background: #101215; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .kacheln figure.an figcaption { color: #c8ccd1; }
   .kacheln figure.an { border-color: #6ea8fe; }
   .kacheln figure.an img { opacity: 1; }
   .kacheln .haken {
@@ -317,6 +326,18 @@
     justify-content: center; font-size: .85rem; color: transparent;
   }
   .kacheln figure.an .haken { background: #6ea8fe; border-color: #6ea8fe; color: #0c1116; }
+  /* Stift und Eimer sind immer sichtbar, nicht erst beim Überfahren: auf
+     dem Tablet gibt es kein Überfahren. */
+  .kacheln .stift, .kacheln .eimer {
+    position: absolute; top: .4rem; width: 1.7rem; height: 1.7rem;
+    border-radius: 50%; border: 1px solid rgba(255,255,255,.35);
+    background: rgba(0,0,0,.62); color: #e8e8e8; font: inherit; font-size: .9rem;
+    line-height: 1; padding: 0; cursor: pointer;
+  }
+  .kacheln .stift { right: .4rem; }
+  .kacheln .eimer { right: 2.3rem; }
+  .kacheln .stift:hover { background: #6ea8fe; border-color: #6ea8fe; color: #0c1116; }
+  .kacheln .eimer:hover { background: #d9534f; border-color: #d9534f; color: #fff; }
 </style>
 </head>
 <body class="ruhe">
@@ -404,6 +425,9 @@
     </header>
     <div class="koerper"><div class="kacheln" id="dKacheln"></div></div>
     <footer>
+      <button class="pfeil" id="dZurueck" title="50 ältere Bilder">‹</button>
+      <button class="pfeil" id="dVor" title="50 neuere Bilder">›</button>
+      <span class="seite" id="dSeite"></span>
       <button id="dAlle">Alle</button>
       <button id="dKeine">Keine</button>
       <div class="rechts">
@@ -810,10 +834,21 @@
       if (eintrag) { eintrag[1] = a.datum; eintrag[2] = a.ort; eintrag[3] = 1; }
       if (bilder[i] && bilder[i][0] === foto.id) setzeInfo(a.datum, a.ort);
 
-      // Ort neu vergeben und das Album hat noch mehr Bilder ohne Ort?
-      const ortNeu = koerper.ort && !foto.hatte_ort;
-      if (ortNeu) fragenachAlbum(foto, oNeu, ortWahl, fertig);
-      else fertig();
+      // Nur beim Nachtragen fragen, nicht beim Berichtigen: wer einen
+      // schon vorhandenen Ort korrigiert, will nicht 50 Nachbarn ändern.
+      const ortNeu   = !!koerper.ort   && !foto.hatte_ort;
+      const datumNeu = !!koerper.datum && !foto.hatte_datum;
+      if (ortNeu || datumNeu) {
+        const werte = {
+          ort:   ortNeu ? oNeu : "",
+          land:  ortNeu && ortWahl ? ortWahl.land : "",
+          cc:    ortNeu && ortWahl ? ortWahl.cc : "",
+          datum: datumNeu ? dNeu : "",
+        };
+        fragenachUmfeld(foto, werte,
+                        ortNeu && datumNeu ? "beides" : (ortNeu ? "ort" : "datum"),
+                        fertig);
+      } else fertig();
     }).catch(() => {
       m.textContent = "Speichern fehlgeschlagen."; m.className = "melder schlecht";
     });
@@ -823,43 +858,149 @@
   $("bWeiter").onclick = weiterMitRueckfrage;
   $("bZu").onclick = () => bearbeitenUmschalten(false);
 
-  // ------------------------------------------------- Ort aufs Album übernehmen
+  // ------------------------------- Datum und Ort auf den Stapel übernehmen
 
-  let dAuswahl = new Set(), dOrt = null, dFertig = null;
+  // Nach dem Nachtragen kommen die zeitlich nächsten Bilder, bei denen
+  // dieselbe Angabe fehlt - 50 auf einmal, mit ‹ › durch die älteren und
+  // neueren. Zeitlich nächste heißt: nach dem eingetragenen Datum, sonst
+  // dem aus dem Import, sonst dem Dateidatum (siehe ZEIT in viewer.py).
+  let dAuswahl = new Set(), dWerte = null, dFertig = null, dWas = "beides";
+  let dFoto = null, dFenster = [], dLaeuft = false, dGesamt = 0;
+  // Wo das gezeigte Fenster herkommt - damit es sich nach dem Übernehmen
+  // an derselben Stelle neu füllen kann.
+  let dStelle = {richtung: "mitte", anker: null};
 
-  function fragenachAlbum(foto, ort, wahl, fertig) {
-    dFertig = fertig;
-    fetch(`/api/foto/${foto.id}/album-ohne-ort?limit=50`)
-      .then(r => r.json()).then(liste => {
-        if (!liste.length) { erledige(); return; }
-        dOrt = {ort, land: wahl ? wahl.land : "", cc: wahl ? wahl.cc : ""};
-        dAuswahl = new Set(liste.map(x => x.id));      // erst mal alle
-        const alben = (foto.alben || []).join(", ");
-        $("dUnter").textContent =
-          `${liste.length} weitere Bilder ${alben ? "aus " + alben : ""} haben `
-          + `noch keinen Ort. Ausgewählte bekommen „${ort}“.`;
-        const k = $("dKacheln");
-        k.innerHTML = "";
-        for (const b of liste) {
-          const f = document.createElement("figure");
-          f.className = "an";
-          f.dataset.id = b.id;
-          const img = document.createElement("img");
-          img.src = "/vorschau/" + b.id; img.loading = "lazy"; img.alt = "";
-          const h = document.createElement("div");
-          h.className = "haken"; h.textContent = "✓";
-          f.append(img, h);
-          f.onclick = () => {
-            if (dAuswahl.has(b.id)) { dAuswahl.delete(b.id); f.classList.remove("an"); }
-            else { dAuswahl.add(b.id); f.classList.add("an"); }
-            zaehleDialog();
-          };
-          k.appendChild(f);
-        }
-        zaehleDialog();
-        $("schleier").hidden = false;
-      });
+  function fragenachUmfeld(foto, werte, was, fertig) {
+    dFertig = fertig; dFoto = foto; dWerte = werte; dWas = was;
+    dAuswahl = new Set(); dFenster = [];
+    $("dTitel").textContent = "Hier auch eintragen?";
+    $("dNein").textContent = "Nein danke";
+    holeUmfeld("mitte", null, "start");
   }
+
+  // art: "start" (Dialog öffnen), "blaettern", "auffrischen" (nach dem
+  // Übernehmen an derselben Stelle nachladen)
+  function holeUmfeld(richtung, anker, art) {
+    if (dLaeuft) return;
+    dLaeuft = true;
+    const q = new URLSearchParams({was: dWas, n: 50, richtung});
+    if (anker) { q.set("anker_zeit", anker.zeit || ""); q.set("anker_id", anker.id); }
+    fetch(`/api/foto/${dFoto.id}/umfeld?` + q)
+      .then(r => r.json()).then(d => {
+        dLaeuft = false;
+        if (!d.bilder.length) {
+          // Am Rand der Bibliothek bleibt der Dialog stehen; ist beim Start
+          // oder nach dem Übernehmen nichts mehr da, gibt es nichts zu fragen.
+          if (art !== "blaettern") erledige();
+          return;
+        }
+        dStelle = {richtung, anker};
+        dFenster = d.bilder;
+        dGesamt = d.gesamt;
+        // Nur das erste Fenster kommt vorausgewählt: das gehört zum eben
+        // bearbeiteten Bild. Wer weiterblättert oder gerade übernommen
+        // hat, sucht erst - da wäre "alles ausgewählt" eine Falle.
+        if (art === "start") for (const b of d.bilder) dAuswahl.add(b.id);
+        zeichneUmfeld(d);
+        if (art === "start") $("schleier").hidden = false;
+      }).catch(() => { dLaeuft = false; });
+  }
+
+  function kopfSchreiben() {
+    const teile = [];
+    if (dWerte.ort) teile.push(`„${dWerte.ort}“`);
+    if (dWerte.datum) teile.push(`„${dWerte.datum}“`);
+    $("dUnter").textContent =
+      `${dGesamt} Bilder in der Nähe haben noch keine Angabe. `
+      + `Ausgewählte bekommen ${teile.join(" und ")} — `
+      + `ergänzt wird nur, was dort fehlt. `
+      + `✎ öffnet ein Bild zum Bearbeiten, 🗑 wirft es weg.`;
+  }
+
+  function fussSchreiben(mehrVorher, mehrNachher) {
+    if (mehrVorher !== undefined) $("dZurueck").disabled = !mehrVorher;
+    if (mehrNachher !== undefined) $("dVor").disabled = !mehrNachher;
+    const erste = dFenster[0], letzte = dFenster[dFenster.length - 1];
+    const zeitraum = dFenster.length
+      ? [erste.datum, letzte.datum].filter(Boolean) : [];
+    $("dSeite").textContent = `${dFenster.length} Bilder`
+      + (zeitraum.length ? " · " + zeitraum.join(" – ") : "");
+    zaehleDialog();
+  }
+
+  function zeichneUmfeld(d) {
+    kopfSchreiben();
+    const k = $("dKacheln");
+    k.innerHTML = "";
+    for (const b of d.bilder) k.appendChild(kachel(b));
+    k.parentElement.scrollTop = 0;
+    fussSchreiben(d.mehr_vorher, d.mehr_nachher);
+  }
+
+  function kachel(b) {
+    const f = document.createElement("figure");
+    f.classList.toggle("an", dAuswahl.has(b.id));
+    f.dataset.id = b.id;
+    const img = document.createElement("img");
+    img.src = "/vorschau/" + b.id; img.loading = "lazy"; img.alt = "";
+    const h = document.createElement("div");
+    h.className = "haken"; h.textContent = "✓";
+    const c = document.createElement("figcaption");
+    c.textContent = [b.datum || "ohne Datum", b.ort || "ohne Ort"].join(" · ");
+    // Zwei weitere Wege aus dem Dialog: das Bild selbst bearbeiten oder es
+    // wegwerfen. Ein Stapel enthält fast immer eines, das anders liegt als
+    // der Rest - und oft genug eines, das keiner mehr braucht.
+    const stift = document.createElement("button");
+    stift.className = "stift"; stift.textContent = "✎";
+    stift.title = "Dieses Bild bearbeiten";
+    stift.onclick = ev => { ev.stopPropagation(); zumBearbeitenSpringen(b); };
+    const eimer = document.createElement("button");
+    eimer.className = "eimer"; eimer.textContent = "🗑";
+    eimer.title = "In den Papierkorb";
+    eimer.onclick = ev => { ev.stopPropagation(); kachelLoeschen(b, f); };
+    f.append(img, h, stift, eimer, c);
+    f.onclick = () => {
+      if (dAuswahl.has(b.id)) { dAuswahl.delete(b.id); f.classList.remove("an"); }
+      else { dAuswahl.add(b.id); f.classList.add("an"); }
+      zaehleDialog();
+    };
+    return f;
+  }
+
+  // Der Dialog geht zu, ohne das zu tun, was nach dem Speichern dran war
+  // (weiterblättern oder Bearbeiten schließen) - stattdessen steht gleich
+  // das angetippte Bild in der Werkbank. Eine angefangene Auswahl fällt
+  // damit weg; sie war ja gerade nicht gemeint.
+  function zumBearbeitenSpringen(b) {
+    dFertig = null;
+    dialogZu();
+    zeigeZumBearbeiten([b.id, b.datum, b.ort, 0]);
+  }
+
+  // Wegwerfen ohne Rückfrage, wie in der Werkbank: die Rückfrage ist der
+  // Papierkorb selbst. Nachgeladen wird nicht - sonst spränge einem beim
+  // Aufräumen dauernd das halbe Fenster weg.
+  function kachelLoeschen(b, f) {
+    fetch(`/api/foto/${b.id}/loeschen`, {method: "POST"})
+      .then(r => r.json()).then(a => {
+        if (!a.ok) return;
+        stand = a.stand;
+        kurz("In Papierkorb verschoben");
+        f.remove();
+        dAuswahl.delete(b.id);
+        dFenster = dFenster.filter(x => x.id !== b.id);
+        if (dGesamt > 0) dGesamt--;
+        const n = bilder.findIndex(x => x[0] === b.id);
+        if (n >= 0) { bilder.splice(n, 1); if (n < i) i--; }
+        kopfSchreiben();
+        fussSchreiben();
+        if (!dFenster.length) erledige();
+      })
+      .catch(() => kurz("Löschen fehlgeschlagen"));
+  }
+
+  $("dZurueck").onclick = () => { if (dFenster.length) holeUmfeld("zurueck", dFenster[0], "blaettern"); };
+  $("dVor").onclick     = () => { if (dFenster.length) holeUmfeld("vor", dFenster[dFenster.length - 1], "blaettern"); };
 
   function zaehleDialog() {
     $("dJa").textContent = dAuswahl.size
@@ -867,7 +1008,10 @@
     $("dJa").disabled = !dAuswahl.size;
   }
 
-  function dialogZu() { $("schleier").hidden = true; dAuswahl.clear(); dOrt = null; }
+  function dialogZu() {
+    $("schleier").hidden = true;
+    dAuswahl.clear(); dWerte = null; dFenster = [];
+  }
 
   // erst den Dialog wegräumen, dann das tun, was nach dem Speichern
   // ohnehin dran war (weiterblättern oder Bearbeiten schließen)
@@ -879,29 +1023,44 @@
 
   $("dNein").onclick = erledige;
 
+  // "Alle"/"Keine" gelten für das gezeigte Fenster; ausgewählte Bilder aus
+  // anderen Fenstern bleiben in der Auswahl, der Knopf rechts zählt alles.
   function alleKacheln(an) {
-    dAuswahl.clear();
     for (const f of $("dKacheln").children) {
+      const id = parseInt(f.dataset.id, 10);
       f.classList.toggle("an", an);
-      if (an) dAuswahl.add(parseInt(f.dataset.id, 10));
+      if (an) dAuswahl.add(id); else dAuswahl.delete(id);
     }
     zaehleDialog();
   }
   $("dAlle").onclick  = () => alleKacheln(true);
   $("dKeine").onclick = () => alleKacheln(false);
 
+  // Nach dem Übernehmen bleibt der Dialog stehen und füllt sich an
+  // derselben Stelle nach: die eben versorgten Bilder fallen aus der
+  // Abfrage heraus, weitere ohne Angabe rücken nach. So lässt sich ein
+  // ganzer Nachmittag in einem Rutsch aufräumen.
   $("dJa").onclick = () => {
-    if (!dOrt || !dAuswahl.size) return;
-    fetch("/api/orte-uebernehmen", {
+    if (!dWerte || !dAuswahl.size) return;
+    $("dJa").disabled = true;
+    fetch("/api/uebernehmen", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ids: [...dAuswahl], ...dOrt}),
+      body: JSON.stringify({ids: [...dAuswahl], ...dWerte}),
     }).then(r => r.json()).then(a => {
+      const teile = [];
+      if (a.ort) teile.push(`Ort für ${a.ort}`);
+      if (a.datum) teile.push(`Datum für ${a.datum}`);
+      const text = teile.length
+        ? teile.join(", ") + " weitere Bilder übernommen."
+        : "Nichts zu ergänzen — dort stand überall schon etwas.";
       const m = $("bMelder");
-      m.textContent = `Ort für ${a.anzahl} weitere Bilder übernommen.`;
-      m.className = "melder gut";
+      m.textContent = text; m.className = "melder gut";
+      kurz(text);
       ladePlaylist(false);
-      erledige();
-    });
+      dAuswahl.clear();
+      $("dNein").textContent = "Fertig";
+      holeUmfeld(dStelle.richtung, dStelle.anker, "auffrischen");
+    }).catch(() => { zaehleDialog(); });
   };
 
   // ---------------------------------------------------------- Wegwerfen
@@ -1238,7 +1397,11 @@
 
   document.addEventListener("keydown", ev => {
     if (!$("schleier").hidden) {
+      // Im Dialog blättern die Pfeiltasten durch die 50er-Fenster, nicht
+      // durch die Slideshow dahinter.
       if (ev.key === "Escape") erledige();
+      else if (ev.key === "ArrowLeft")  $("dZurueck").click();
+      else if (ev.key === "ArrowRight") $("dVor").click();
       return;
     }
     if (tippt()) {

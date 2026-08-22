@@ -191,7 +191,13 @@ def db_schreiben():
 # Korrekturen von Hand stehen in eigenen Spalten.  Die Werte aus dem Import
 # bleiben daneben unangetastet - so ueberschreibt ein spaeterer Lauf von
 # import_photos.py oder geocode.py nichts von Hand Eingetragenes.
+# Spalten, die der Viewer selbst anlegt, wenn sie fehlen.  display_date und
+# date_confidence legt inzwischen import_photos.py an und fuellt sie auch -
+# hier stehen sie nur, damit der Viewer an einer Datenbank aus einem
+# aelteren Import nicht mit "no such column" abbricht.
 HAND_SPALTEN = (
+    ("display_date", "TEXT"),
+    ("date_confidence", "TEXT"),
     ("hand_date", "TEXT"),
     ("hand_date_confidence", "TEXT"),
     ("hand_place", "TEXT"),
@@ -465,6 +471,19 @@ def ausdruecke():
     }
 
 
+def wahrheit(wert, vorgabe=False):
+    """Was aus JSON oder einer URL kommt, als Wahrheitswert lesen.
+
+    bool("false") ist True, und genau das kommt an, wenn ein Aufrufer
+    "an": "false" schickt statt eines echten JSON-false.
+    """
+    if wert is None:
+        return vorgabe
+    if isinstance(wert, bool):
+        return wert
+    return str(wert).strip().lower() in ("1", "true", "ja", "yes", "an", "on")
+
+
 # Gestrichene Bilder tauchen nirgends mehr auf.  Der Abgleich laeuft ueber
 # den SHA-256, damit er einen erneuten Import derselben Datei ueberlebt.
 #
@@ -712,7 +731,7 @@ def _import_lauf():
                 _zeile(f"!!!!! {meldung}")
                 break
         else:
-            meldung = "Alle drei Schritte fertig."
+            meldung = f"Alle {len(SCHRITTE)} Schritte fertig."
             _zeile(f"===== {meldung} ({datetime.now():%H:%M:%S}) =====")
     except Exception as exc:                       # pragma: no cover
         erfolg = False
@@ -1128,6 +1147,9 @@ def api_foto(photo_id):
     d["feld_land"] = e["d_land"] or ""
     d["feld_cc"] = e["d_cc"] or ""
     d["hatte_ort"] = e["d_ort"] is not None
+    # 'unsicher' ist das Empfangs-, nicht das Aufnahmedatum - da fehlt die
+    # Angabe genauso wie bei NULL.
+    d["hatte_datum"] = (e["d_datum"] is not None and e["d_conf"] != "unsicher")
 
     # Steht noch kein Ort da, das erste Album als Vorschlag deuten.
     # Besser ein Vorschlag aus "1991 Hawaii" als ein leeres Feld.
@@ -1247,60 +1269,182 @@ def api_umgebung(photo_id):
     return jsonify({"vorher": vorher, "nachher": hole(+1)})
 
 
-@app.route("/api/foto/<int:photo_id>/album-ohne-ort")
-def api_album_ohne_ort(photo_id):
-    """Bilder aus denselben Alben, bei denen noch kein Ort steht.
+# Zeit eines Bildes fuer die Nachbarschaft: was von Hand eingetragen wurde,
+# sonst das Aufnahmedatum aus dem Import, sonst das Dateidatum.  taken_at
+# ist genau das - EXIF, sonst Takeout-JSON, sonst die Zeit der Datei -,
+# und anders als display_date steht es bei jedem Bild.  Ohne diesen
+# Rueckfall haetten ausgerechnet die Bilder ohne verlaessliches Datum
+# keinen Platz in der Zeitachse, also die, um die es hier geht.
+ZEIT = "COALESCE(p.hand_date, p.display_date, p.taken_at)"
 
-    Grundlage fuer die Rueckfrage nach dem Speichern: wer ein Album
-    durchsieht, hat den Ort meist fuer den ganzen Stapel richtig.
+
+def _fehlt(was, a):
+    """SQL-Bedingung 'diese Angabe fehlt noch'."""
+    teile = []
+    if was in ("ort", "beides"):
+        teile.append(f"{a['ort']} IS NULL")
+    if was in ("datum", "beides"):
+        teile.append(f"({a['datum']} IS NULL OR {a['conf']} = 'unsicher')")
+    return "(" + " OR ".join(teile) + ")"
+
+
+@app.route("/api/foto/<int:photo_id>/umfeld")
+def api_umfeld(photo_id):
+    """Zeitlich benachbarte Bilder, bei denen dieselbe Angabe noch fehlt.
+
+    Grundlage fuer die Rueckfrage nach dem Speichern: wer einen Ort oder
+    ein Datum nachtraegt, hat es meist fuer den ganzen Stapel richtig.
+    Die Nachbarschaft in der Zeit trifft den Stapel zuverlaessiger als das
+    Album - Takeout legt jedes Bild zusaetzlich in ein "Fotos von JJJJ",
+    und ein Ausflug erstreckt sich oft ueber mehrere Alben.
+
+    Geblaettert wird ueber den Anker (anker_zeit, anker_id), nicht ueber
+    OFFSET: waehrend des Uebernehmens verschieben sich die Bilder in der
+    Liste, ein Zaehler zeigte danach auf etwas anderes.
+
+    richtung: mitte (um das Bild herum), zurueck (aeltere), vor (neuere)
     """
+    was = request.args.get("was", "beides")
+    if was not in ("ort", "datum", "beides"):
+        was = "beides"
     try:
-        limit = min(int(request.args.get("limit", 50)), 200)
+        n = min(max(int(request.args.get("n", 50)), 1), 200)
     except ValueError:
-        limit = 50
+        n = 50
+    richtung = request.args.get("richtung", "mitte")
+
     a = ausdruecke()
-    rows = db().execute(
-        f"SELECT DISTINCT p.id, p.filename FROM photos p"
-        f" JOIN photo_albums a ON a.photo_id = p.id"
-        f" WHERE a.album IN (SELECT album FROM photo_albums WHERE photo_id = ?)"
-        f"   AND p.id <> ?"
-        f"   AND p.is_video = 0 AND p.thumb_state = 'ok'"
-        f"   AND {a['ort']} IS NULL"
-        f"   AND {NICHT_GELOESCHT}"
-        f" ORDER BY p.display_date, p.id LIMIT ?",
-        (photo_id, photo_id, limit)).fetchall()
-    return jsonify([{"id": r["id"], "filename": r["filename"]} for r in rows])
+    hier = db().execute(f"SELECT {ZEIT} AS z FROM photos p WHERE p.id = ?",
+                        (photo_id,)).fetchone()
+    if not hier:
+        abort(404)
+    anker_zeit = request.args.get("anker_zeit") or hier["z"] or ""
+    try:
+        anker_id = int(request.args.get("anker_id", photo_id))
+    except (TypeError, ValueError):
+        anker_id = photo_id
+
+    rumpf = (f"SELECT p.id, {ZEIT} AS z,"
+             f" {a['datum']} AS d_datum, {a['conf']} AS d_conf,"
+             f" {a['ort']} AS d_ort, {a['land']} AS d_land,"
+             f" {a['cc']} AS d_cc, {a['km']} AS d_km"
+             f" FROM photos p"
+             f" WHERE p.is_video = 0 AND p.thumb_state = 'ok'"
+             f"   AND {NICHT_GELOESCHT} AND {ZEIT} IS NOT NULL"
+             f"   AND p.id <> ? AND " + _fehlt(was, a))
+
+    def hole(vorwaerts, zeit, pid, wieviel):
+        """wieviel Bilder aelter (vorwaerts=False) bzw. neuer als der Anker."""
+        if wieviel <= 0:
+            return []
+        if vorwaerts:
+            wo = f" AND (z > ? OR (z = ? AND p.id > ?)) ORDER BY z, p.id LIMIT ?"
+        else:
+            wo = (f" AND (z < ? OR (z = ? AND p.id < ?))"
+                  f" ORDER BY z DESC, p.id DESC LIMIT ?")
+        rows = db().execute(rumpf + wo,
+                            (photo_id, zeit, zeit, pid, wieviel)).fetchall()
+        liste = [{"id": r["id"], "zeit": r["z"],
+                  "datum": datum_text(r["d_datum"], r["d_conf"]),
+                  "ort": ort_text(r["d_ort"], r["d_land"], r["d_cc"],
+                                  r["d_km"])} for r in rows]
+        if not vorwaerts:
+            liste.reverse()                 # immer aelteste zuerst
+        return liste
+
+    if richtung == "zurueck":
+        fenster = hole(False, anker_zeit, anker_id, n)
+    elif richtung == "vor":
+        fenster = hole(True, anker_zeit, anker_id, n)
+    else:
+        # Um das Bild herum: halb/halb, und was die eine Seite nicht
+        # hergibt, holt die andere nach - am Rand der Bibliothek sollen
+        # trotzdem 50 Bilder zusammenkommen.
+        alt = hole(False, anker_zeit, anker_id, n // 2)
+        neu = hole(True, anker_zeit, anker_id, n - len(alt))
+        if len(neu) < n - len(alt):
+            alt = hole(False, anker_zeit, anker_id, n - len(neu))
+        fenster = alt + neu
+
+    if fenster:
+        erste, letzte = fenster[0], fenster[-1]
+        mehr_vorher = bool(hole(False, erste["zeit"], erste["id"], 1))
+        mehr_nachher = bool(hole(True, letzte["zeit"], letzte["id"], 1))
+    else:
+        mehr_vorher = mehr_nachher = False
+
+    gesamt = db().execute(
+        f"SELECT COUNT(*) FROM photos p"
+        f" WHERE p.is_video = 0 AND p.thumb_state = 'ok'"
+        f"   AND {NICHT_GELOESCHT} AND {ZEIT} IS NOT NULL"
+        f"   AND p.id <> ? AND " + _fehlt(was, a), (photo_id,)).fetchone()[0]
+
+    return jsonify({"bilder": fenster, "gesamt": gesamt,
+                    "mehr_vorher": mehr_vorher, "mehr_nachher": mehr_nachher})
 
 
-@app.route("/api/orte-uebernehmen", methods=["POST"])
-def api_orte_uebernehmen():
-    """Denselben Ort auf mehrere Bilder schreiben."""
+@app.route("/api/uebernehmen", methods=["POST"])
+def api_uebernehmen():
+    """Datum und/oder Ort auf mehrere Bilder schreiben.
+
+    Ergaenzt wird nur, was dort noch fehlt.  Ein Stapel enthaelt fast
+    immer auch Bilder, bei denen nur die eine der beiden Angaben fehlt -
+    wuerde stumpf ueberschrieben, riebe das Nachtragen eines Ortes das
+    schon bekannte Datum der Nachbarn weg.
+    """
     daten = request.get_json(silent=True) or {}
     ids = daten.get("ids")
-    ort = (daten.get("ort") or "").strip()
-    if not isinstance(ids, list) or not ids or not ort:
-        return jsonify({"fehler": "ids und ort nötig"}), 400
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"fehler": "ids nötig"}), 400
     try:
         ids = [int(x) for x in ids]
     except (TypeError, ValueError):
         return jsonify({"fehler": "ids müssen Zahlen sein"}), 400
 
+    ort = (daten.get("ort") or "").strip()
+    roh = (daten.get("datum") or "").strip()
+    if not ort and not roh:
+        return jsonify({"fehler": "Datum oder Ort nötig"}), 400
+    gedeutet = None
+    if roh:
+        gedeutet = datum_deuten(roh)
+        if not gedeutet:
+            return jsonify({"fehler": f"Datum '{roh}' nicht verstanden"}), 400
+
     land = (daten.get("land") or "").strip() or None
     cc = (daten.get("cc") or "").strip().upper() or None
     jetzt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    a = ausdruecke()
+    platz = ",".join("?" * len(ids))
+    # Der Umweg ueber die Unterabfrage ist noetig, weil ausdruecke() den
+    # Alias p benutzt, den ein UPDATE nicht kennt.
+    def nur_fehlende(bedingung):
+        return (f" WHERE id IN (SELECT p.id FROM photos p"
+                f" WHERE p.id IN ({platz}) AND {bedingung})")
 
     conn = db_schreiben()
     try:
-        platz = ",".join("?" * len(ids))
-        cur = conn.execute(
-            f"UPDATE photos SET hand_place = ?, hand_country = ?,"
-            f" hand_cc = ?, hand_at = ? WHERE id IN ({platz})",
-            [ort, land, cc, jetzt, *ids])
+        n_ort = n_datum = 0
+        if ort:
+            cur = conn.execute(
+                "UPDATE photos SET hand_place = ?, hand_country = ?,"
+                " hand_cc = ?, hand_at = ?"
+                + nur_fehlende(f"{a['ort']} IS NULL"),
+                [ort, land, cc, jetzt, *ids])
+            n_ort = cur.rowcount
+        if gedeutet:
+            cur = conn.execute(
+                "UPDATE photos SET hand_date = ?, hand_date_confidence = ?,"
+                " hand_at = ?"
+                + nur_fehlende(f"({a['datum']} IS NULL"
+                               f" OR {a['conf']} = 'unsicher')"),
+                [gedeutet[0], gedeutet[1], jetzt, *ids])
+            n_datum = cur.rowcount
         conn.commit()
-        n = cur.rowcount
     finally:
         conn.close()
-    return jsonify({"ok": True, "anzahl": n, "stand": stand()})
+    return jsonify({"ok": True, "ort": n_ort, "datum": n_datum,
+                    "anzahl": max(n_ort, n_datum), "stand": stand()})
 
 
 @app.route("/api/foto/<int:photo_id>/loeschen", methods=["POST"])
@@ -1871,7 +2015,9 @@ def api_cast_schalten():
         return jsonify({"fehler": "PyChromecast oder Pillow fehlt."}), 503
     daten = request.get_json(silent=True) or {}
     geraet = daten.get("geraet")
-    an = bool(daten.get("an"))
+    # bool("false") waere True - JSON-Wahrheitswerte kommen aber nicht
+    # immer als echtes true/false an, sondern auch als "0" oder "false".
+    an = wahrheit(daten.get("an"))
     if an and not (geraet or CAST["geraet"]):
         return jsonify({"fehler": "Kein Gerät gewählt."}), 400
     cast_schalten(an, geraet)
@@ -2414,8 +2560,8 @@ def api_ausschalten():
     ?trotzdem=1 geht es dennoch.
     """
     daten = request.get_json(silent=True) or {}
-    wunsch = daten.get("trotzdem", request.args.get("trotzdem", ""))
-    trotzdem = str(wunsch).lower() in ("1", "true", "ja", "yes")
+    trotzdem = wahrheit(daten.get("trotzdem",
+                                  request.args.get("trotzdem", "")))
     if IMPORT["aktiv"] and not trotzdem:
         return jsonify({"fehler": "Es läuft ein Import.",
                         "import": True}), 409
@@ -2450,7 +2596,15 @@ def api_ausschalten():
 
 @app.route("/favicon.ico")
 def favicon():
-    return redirect("/bild/1")
+    # Nicht stur auf /bild/1: die id 1 kann im Papierkorb liegen, ohne
+    # Thumbnail sein oder nach einem Neuaufbau der Datenbank gar nicht mehr
+    # existieren - dann holt sich der Browser bei jedem Laden eine 404.
+    zeile = db().execute(
+        f"SELECT id FROM photos p WHERE is_video = 0 AND thumb_state = 'ok'"
+        f" AND {NICHT_GELOESCHT} LIMIT 1").fetchone()
+    if not zeile:
+        return "", 204
+    return redirect(f"/bild/{zeile[0]}")
 
 
 def main():

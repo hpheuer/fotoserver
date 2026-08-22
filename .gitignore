@@ -13,6 +13,8 @@ unmatched_sidecars.txt
 pruefsummen-stand.tsv
 # Gelesene Takeout-Archive samt Hashes, wird neu aufgebaut.
 abgleich-stand.tsv
+# Sperrdatei, damit nur ein Abgleich auf einmal laeuft.
+abgleich.lock
 __pycache__/
 *.pyc
 
@@ -40,3 +42,4 @@ oberflaeche.sh
 # Projektnotizen mit persönlichen Angaben
 CLAUDE.md
 .claude/
+klonen.sh

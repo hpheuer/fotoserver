@@ -373,7 +373,9 @@ def spalten_anlegen(conn):
 def zuordnen(neu=False):
     if not DB_PATH.exists():
         sys.exit(f"Keine Datenbank unter {DB_PATH}")
-    conn = sqlite3.connect(DB_PATH)
+    # 30 Sekunden Geduld: der Viewer haelt die Datenbank offen, und ein
+    # kurzer Schreibzugriff von dort soll den Lauf nicht scheitern lassen.
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     spalten_anlegen(conn)
 
     bedingung = "lat IS NOT NULL AND lon IS NOT NULL"
@@ -410,7 +412,14 @@ def zuordnen(neu=False):
             name, land, cc, km = treffer
             ergebnis.append((name, land, cc, round(km, 2), pid))
 
+    # Die Bedingung steht nicht nur oben in der Auswahl, sondern auch hier:
+    # zwischen Lesen und Schreiben liegen bei 10.000 Fotos einige Sekunden,
+    # und in dieser Zeit kann im Edit-Modus ein Ort von Hand gesetzt worden
+    # sein.  Ohne die Wiederholung riebe der Lauf ihn wieder weg.
     conn.executemany(
+        "UPDATE photos SET place=?, place_country=?, place_cc=?, place_km=? "
+        "WHERE id=? AND hand_place IS NULL"
+        if "hand_place" in spalten else
         "UPDATE photos SET place=?, place_country=?, place_cc=?, place_km=? "
         "WHERE id=?", ergebnis)
     conn.commit()
@@ -423,7 +432,7 @@ def zuordnen(neu=False):
 def stats(conn=None):
     schliessen = False
     if conn is None:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         schliessen = True
 
     gesamt, mit_gps, mit_ort = conn.execute(

@@ -41,6 +41,7 @@ Archive stehen in abgleich-stand.tsv, der naechste Aufruf ueberspringt sie.
 """
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -162,14 +163,34 @@ def eintraege_zaehlen(archiv):
     return len(infos), sum(i.file_size for i in infos)
 
 
+class ArchivKaputt(Exception):
+    """Ein Archiv liess sich nicht vollstaendig lesen."""
+
+
 def hashes_aus_archiv(archiv, melden):
-    """Jedes Medium im Archiv einmal lesen -> {hash: name}."""
+    """Jedes Medium im Archiv einmal lesen -> {hash: name}.
+
+    Ein kaputter Eintrag darf nicht als Traceback enden und erst recht
+    nicht uebersprungen werden: die Bilder, die dann fehlen, gaelten als
+    bei Google geloescht.  Deshalb ArchivKaputt - der Aufrufer bricht den
+    ganzen Lauf ab und sagt, welches Archiv neu geladen werden muss.
+    """
     ergebnis = {}
-    with zipfile.ZipFile(archiv) as z:
-        for info in medien(z):
-            with z.open(info) as fh:
-                ergebnis.setdefault(sha256_von_strom(fh), info.filename)
-            melden(info.file_size)
+    try:
+        with zipfile.ZipFile(archiv) as z:
+            for info in medien(z):
+                try:
+                    with z.open(info) as fh:
+                        ergebnis.setdefault(sha256_von_strom(fh), info.filename)
+                except (OSError, EOFError, RuntimeError,
+                        zipfile.BadZipFile) as exc:
+                    raise ArchivKaputt(
+                        f"{archiv.name}: '{info.filename}' liess sich nicht "
+                        f"lesen ({type(exc).__name__}: {exc})") from exc
+                melden(info.file_size)
+    except zipfile.BadZipFile as exc:
+        raise ArchivKaputt(f"{archiv.name} ist kein lesbares Zip "
+                           f"({exc})") from exc
     return ergebnis
 
 
@@ -182,6 +203,13 @@ def stand_lesen():
     abgebrochen wurde, ist halb und wird noch einmal gelesen.
     """
     fertig, gross = {}, {}
+    # Welche Archive wirklich zu Ende gelesen wurden.  Frueher wurde dafuer
+    # geprueft, ob "#fertig\t<name>" irgendwo im Text vorkommt - eine
+    # Zeichenkettensuche, die auch bei einem laengeren Namen anschlaegt
+    # ("photos.zip" steckt in "photos.zip.teil2").  Ein halb gelesenes
+    # Archiv gaelte dann als fertig, und seine ungelesenen Bilder zaehlten
+    # als bei Google geloescht.
+    abgeschlossen = set()
     try:
         text = STAND.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -194,12 +222,14 @@ def stand_lesen():
             fertig.setdefault(aktuell, {})
             gross[aktuell] = int(teile[2])
         elif teile[0] == "#fertig" and len(teile) == 2:
+            if teile[1] == aktuell:
+                abgeschlossen.add(aktuell)
             aktuell = None
         elif aktuell and len(teile) == 2:
             fertig[aktuell][teile[0]] = teile[1]
     return {name: (gross.get(name, -1), hashes)
             for name, hashes in fertig.items()
-            if f"#fertig\t{name}" in text}
+            if name in abgeschlossen}
 
 
 def stand_pruefen(fertig, archiv):
@@ -279,6 +309,11 @@ def sammeln(archive, von_vorn):
                 for h, name in eintraege.items():
                     neu.setdefault(h, (archiv.name, name))
                 log(f"  {archiv.name}: {len(eintraege)} eindeutige Medien")
+    except ArchivKaputt as exc:
+        sys.exit(f"Abbruch: {exc}\n"
+                 f"  Ein unvollstaendig gelesenes Archiv wuerde seine Bilder\n"
+                 f"  als bei Google geloescht ausweisen.  Das Archiv neu\n"
+                 f"  herunterladen und den Lauf wiederholen.")
     except KeyboardInterrupt:
         sys.exit(f"Abbruch.  Fertige Archive stehen in {STAND.name}, "
                  f"der naechste Aufruf ueberspringt sie.")
@@ -297,11 +332,22 @@ def import_laeuft():
     """
     for name in ("import_photos.py", "make_thumbs.py", "geocode.py"):
         try:
-            if subprocess.run(["pgrep", "-f", name],
-                              capture_output=True).returncode == 0:
-                return name
+            res = subprocess.run(["pgrep", "-a", "-f", name],
+                                 capture_output=True, text=True)
         except FileNotFoundError:
             return None
+        for zeile in res.stdout.splitlines():
+            teile = zeile.split()[1:]          # die PID vorne weg
+            if not teile:
+                continue
+            # pgrep -f durchsucht die ganze Befehlszeile.  Ohne diese
+            # Pruefung meldete auch ein offenes "vim import_photos.py"
+            # einen laufenden Import - und der Abgleich liefe nie.
+            aufruf = os.path.basename(teile[0])
+            wenn_python = "python" in aufruf and any(
+                os.path.basename(t) == name for t in teile[1:])
+            if aufruf == name or wenn_python:
+                return name
     return None
 
 
@@ -584,7 +630,11 @@ def bestaetigen(erg, urteil, begruendung, ohne_frage, trotzdem, losung):
 
 
 def anwenden(db_pfad, weg, zurueck):
-    jetzt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Der Zeitstempel ist die Kennung des Laufs, --zuruecknehmen greift
+    # genau ihn heraus.  Auf die Sekunde genau waeren zwei Laeufe kurz
+    # hintereinander derselbe Lauf - und das Zuruecknehmen des zweiten
+    # raeumte den ersten gleich mit ab.  Deshalb mit Bruchteilen.
+    jetzt = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
     conn = sqlite3.connect(db_pfad, timeout=30)
     try:
         conn.executemany("UPDATE photos SET geloescht_am = ? WHERE sha256 = ?",
@@ -636,6 +686,23 @@ def zuruecknehmen(db_pfad, was):
     return 0
 
 
+def allein():
+    """Nur ein Abgleich auf einmal.
+
+    Zwei Laeufe schrieben gleichzeitig in abgleich-stand.tsv - die Zeilen
+    des einen landeten mitten im Archivblock des anderen, und beim naechsten
+    Lesen gaelte ein halb gelesenes Archiv als fertig.  Die offene Datei
+    bleibt bis zum Ende des Prozesses bestehen; das Betriebssystem gibt die
+    Sperre dann von allein frei, auch nach einem Absturz.
+    """
+    griff = open(BASE / "abgleich.lock", "w")
+    try:
+        fcntl.flock(griff, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit("Es laeuft bereits ein Abgleich.")
+    return griff
+
+
 def lauf(orte, db_pfad, tun, ohne_frage, von_vorn, trotzdem, losung,
          ohne_rueckfall):
     if not db_pfad.exists():
@@ -643,6 +710,7 @@ def lauf(orte, db_pfad, tun, ohne_frage, von_vorn, trotzdem, losung,
     laeuft = import_laeuft()
     if laeuft:
         sys.exit(f"Es laeuft gerade ein Import ({laeuft}) - erst abwarten.")
+    sperre = allein()   # muss stehen bleiben: mit der Datei faellt die Sperre
 
     archive = archive_finden(orte)
     if not archive:
