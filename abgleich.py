@@ -120,15 +120,30 @@ def archive_finden(orte):
 
 
 def gruppieren(archive):
-    """Nach Export-Kennung gruppieren -> {kennung: {nr: pfad}}."""
+    """Nach Export-Kennung gruppieren -> {schluessel: {nr: pfad}}.
+
+    Der Schluessel ist ein Paar aus Art und Namen, damit ein einzelnes
+    Archiv nie in der Gruppe eines nummerierten landet: "x-001.zip" ergibt
+    die Kennung "x", und ein daneben liegendes "x.zip" haette unter
+    demselben Schluessel dessen Teil 1 verdraengt.  Der waere dann nie
+    gelesen worden - und seine Bilder gaelten als bei Google geloescht.
+    Einzelarchive stehen ausserdem unter ihrem vollen Pfad, sonst
+    verdraengten sich zwei gleichnamige aus verschiedenen Ordnern.
+    """
     gruppen = {}
     for p in archive:
         m = TEIL.match(p.name)
         if m:
-            gruppen.setdefault(m["kennung"], {})[int(m["nr"])] = p
+            gruppen.setdefault(("teile", m["kennung"]), {})[int(m["nr"])] = p
         else:
-            gruppen.setdefault(p.stem, {})[1] = p
+            gruppen.setdefault(("einzeln", str(p)), {})[1] = p
     return gruppen
+
+
+def gruppenname(schluessel):
+    """Wie eine Gruppe im Bericht heisst."""
+    art, wert = schluessel
+    return wert if art == "teile" else Path(wert).name
 
 
 def vollstaendig(gruppen):
@@ -139,11 +154,11 @@ def vollstaendig(gruppen):
     gelten, obwohl sie nur nicht mitgeliefert wurden.
     """
     fehler = []
-    for kennung, teile in sorted(gruppen.items()):
+    for schluessel, teile in sorted(gruppen.items()):
         hoechste = max(teile)
         luecken = [n for n in range(1, hoechste + 1) if n not in teile]
         if luecken:
-            fehler.append(f"{kennung}: Teil "
+            fehler.append(f"{gruppenname(schluessel)}: Teil "
                           f"{', '.join(f'{n:03d}' for n in luecken)}"
                           f" von {hoechste:03d} fehlt")
     return fehler
@@ -720,8 +735,8 @@ def lauf(orte, db_pfad, tun, ohne_frage, von_vorn, trotzdem, losung,
     log(f"{len(archive)} Archive, "
         f"{menschlich(sum(a.stat().st_size for a in archive))}, "
         f"{len(gruppen)} Export{'e' if len(gruppen) > 1 else ''}")
-    for kennung, teile in sorted(gruppen.items()):
-        log(f"  {kennung}: {len(teile)} Teil(e)")
+    for schluessel, teile in sorted(gruppen.items()):
+        log(f"  {gruppenname(schluessel)}: {len(teile)} Teil(e)")
     fehler = vollstaendig(gruppen)
     if fehler:
         for f in fehler:

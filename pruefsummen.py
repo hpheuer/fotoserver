@@ -118,12 +118,58 @@ def journal_zeile(befund, groesse, mtime, hash_, datei):
     return f"{befund}\t{groesse}\t{mtime:.6f}\t{hash_}\t{datei}\n"
 
 
+def journal_verdichten(pfad, gueltig, quelle):
+    """Eine Zeile je Datei, nach einem vollstaendigen Lauf.
+
+    Geschrieben wird waehrend des Laufs immer angehaengt - anders liesse
+    sich ein Abbruch nicht ueberleben.  Wer aber dieselbe Datei zweimal
+    prueft (weil sie sich geaendert hat), bekommt zwei Zeilen, und nach
+    einigen Laeufen steht das Vielfache des Noetigen in der Datei.  Beim
+    Lesen gewinnt ohnehin die letzte Zeile je Pfad; genau die bleibt hier
+    stehen.
+
+    Weggeworfen wird nur innerhalb der gerade geprueften Bibliothek: dort
+    heisst "steht im Journal, aber nicht in der Dateiliste" wirklich, dass
+    es die Datei nicht mehr gibt.  Zeilen von ausserhalb bleiben unberuehrt
+    - das Journal liegt fest im Projektordner, die Bibliothek kommt aber
+    aus --quelle, und ein Probelauf gegen ein anderes Verzeichnis darf
+    nicht den Stand der echten Bibliothek loeschen.
+
+    Erst in eine Nebendatei, dann umbenennen: bricht es mittendrin ab,
+    bleibt der alte Stand heil.
+    """
+    stand = journal_lesen(pfad)
+    wurzel = os.path.abspath(quelle) + os.sep
+    ziel = pfad.with_suffix(pfad.suffix + ".neu")
+    vorher = sum(1 for _ in pfad.open(encoding="utf-8")) if pfad.exists() else 0
+    with ziel.open("w", encoding="utf-8") as f:
+        for datei, (befund, hash_, groesse, mtime) in stand.items():
+            if datei in gueltig or not os.path.abspath(datei).startswith(wurzel):
+                f.write(journal_zeile(befund, groesse, mtime, hash_, datei))
+    os.replace(ziel, pfad)
+    nachher = sum(1 for _ in pfad.open(encoding="utf-8"))
+    if nachher != vorher:
+        log(f"{pfad.name} verdichtet: {vorher} -> {nachher} Zeilen")
+
+
 # ------------------------------------------------------------------ Bibliothek
 
 def sammeln(quelle):
-    """Alle Mediendateien unter quelle -> [(pfad, groesse, mtime)]."""
-    gefunden = []
-    for root, dirs, namen in os.walk(quelle):
+    """Mediendateien unter quelle -> ([(pfad, groesse, mtime)], [(pfad, grund)]).
+
+    Was sich nicht einsammeln laesst, wird mitgezaehlt und nicht
+    verschluckt.  Frueher fielen ein unlesbares Verzeichnis (os.walk
+    meldet Fehler nur, wenn man danach fragt) und eine Datei, die zwischen
+    Auflisten und Nachsehen verschwindet, stillschweigend heraus - und am
+    Ende stand "Alle Hashes stimmen" ueber einer Bibliothek, von der ein
+    Teil nie angesehen wurde.
+    """
+    gefunden, unlesbar = [], []
+
+    def gestolpert(exc):
+        unlesbar.append((getattr(exc, "filename", None) or str(quelle), exc))
+
+    for root, dirs, namen in os.walk(quelle, onerror=gestolpert):
         dirs.sort()
         for n in sorted(namen):
             if os.path.splitext(n)[1].lower() not in MEDIA_EXT:
@@ -131,10 +177,11 @@ def sammeln(quelle):
             p = os.path.join(root, n)
             try:
                 st = os.stat(p)
-            except OSError:
+            except OSError as exc:
+                unlesbar.append((p, exc))
                 continue
             gefunden.append((p, st.st_size, st.st_mtime))
-    return gefunden
+    return gefunden, unlesbar
 
 
 def datenbank_lesen(db_pfad):
@@ -176,7 +223,7 @@ def pruefen(quelle, db_pfad, limit=None, jobs=JOBS, von_vorn=False):
     log(f"  {len(nach_pfad)} Dateien und {len(in_photos)} Bilder eingetragen")
 
     log(f"Sammle Dateien unter {quelle} ...")
-    dateien = sammeln(quelle)
+    dateien, unlesbar = sammeln(quelle)
     log(f"  {len(dateien)} Mediendateien, "
         f"{menschlich(sum(g for _, g, _ in dateien))}")
 
@@ -184,6 +231,13 @@ def pruefen(quelle, db_pfad, limit=None, jobs=JOBS, von_vorn=False):
     zaehler = {name: 0 for name in BEFUNDE}
     auffaellig = {name: [] for name in BEFUNDE if name != "ok"}
     offen, uebersprungen = [], 0
+
+    # Was gar nicht erst einzusammeln war, zaehlt als Fehler.  Sonst
+    # stuende am Ende "Alle Hashes stimmen", obwohl niemand hingesehen hat.
+    for pfad, grund in unlesbar:
+        log(f"  nicht zugaenglich: {pfad} ({grund})")
+        zaehler["fehler"] += 1
+        auffaellig["fehler"].append(pfad)
 
     for pfad, groesse, mtime in dateien:
         frueher = stand.get(pfad)
@@ -257,6 +311,9 @@ def pruefen(quelle, db_pfad, limit=None, jobs=JOBS, von_vorn=False):
                 f"{JOURNAL.name}, der naechste Aufruf macht dort weiter.")
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
+
+    if not unterbrochen and not limit:
+        journal_verdichten(JOURNAL, {p for p, _, _ in dateien}, quelle)
 
     if not unterbrochen:
         verschwunden = [p for p in nach_pfad
