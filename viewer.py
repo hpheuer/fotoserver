@@ -2149,9 +2149,9 @@ def api_takeout_loeschen():
 # -------------------------------------------------------------- Sicherung
 
 # Sichern heisst: eine fremde Platte einhaengen und mit vollen Rechten
-# darauf schreiben.  Der Viewer kann das nicht - er laeuft als joerg mit
-# NoNewPrivileges und darf ausserhalb von ~/photoserver und ~/takeout-import
-# nicht einmal etwas anlegen.  Das ist Absicht und bleibt so.
+# darauf schreiben.  Der Viewer kann das nicht - er laeuft als normaler
+# Benutzer mit NoNewPrivileges und darf ausserhalb von ~/photoserver und
+# ~/takeout-import nicht einmal etwas anlegen.  Das ist Absicht und bleibt so.
 #
 # Also stellt er nur einen Auftrag: zwei Zeilen in sicherung-auftrag.txt.
 # photoserver-sicherung.path sieht die Datei auftauchen und startet
