@@ -66,6 +66,22 @@ IMPORT_LOG = BASE / "import_web.log"
 DAUER_MIN, DAUER_MAX = 2, 300
 MODI = ("zufall", "chrono", "neueste")
 
+# Die Mischung fuer modus="zufall" bleibt, solange der Dienst laeuft.
+# Frueher wurde bei jedem Abruf neu gemischt - und die Slideshow holt die
+# Playlist alle 30 Sekunden nach, sobald sich der Stand geaendert hat.
+# Danach zeigte "zurueck" Bilder, die nie zu sehen waren, und der Fernseher
+# fing zusaetzlich wieder bei Bild 1 an.
+#
+# Gemischt wird deshalb ueber einen Sortierschluessel je Bild, nicht mit
+# shuffle(): faellt ein Bild weg oder kommt eines dazu, bleiben alle
+# anderen stehen, wo sie waren.  shuffle() mit fester Saat wuerde bei
+# geaenderter Laenge eine voellig andere Reihenfolge ergeben.
+MISCHUNG = random.randrange(1 << 30)
+
+
+def _mischwert(photo_id):
+    return hashlib.md5(f"{MISCHUNG}:{photo_id}".encode()).digest()
+
 # Schriftgroesse der Beschriftung und Groesse der Bedienleiste sind von Hand
 # ziehbar.  Die Grenzen halten beides in einem Bereich, in dem es noch
 # bedienbar bzw. lesbar bleibt.
@@ -554,8 +570,14 @@ def playlist(modus="zufall", alben=None, nur=None, ohne_album=True):
               1 if r["von_hand"] else 0]
              for r in rows]
 
+    # Platz 4: der Rang in der Zeit.  Den braucht die Slideshow, um von
+    # Hand zeitlich zu blaettern - im Zufallsmodus sagt der Nachbar in der
+    # Liste nichts ueber das Bild, der zeitliche Nachbar fast immer.
+    for rang, e in enumerate(reversed(items) if modus == "neueste" else items):
+        e.append(rang)
+
     if modus == "zufall":
-        random.shuffle(items)
+        items.sort(key=lambda e: _mischwert(e[0]))
     return items
 
 
@@ -931,6 +953,7 @@ _orte_namen = None          # kleingeschrieben -> [Eintraege]
 _laender_namen = None       # kleingeschrieben -> (Name, cc)
 _regionen_namen = None      # kleingeschrieben -> (Name, cc, Land)
 _land_gewicht = None        # cc -> Anzahl eigener Fotos
+_vergeben = None            # kleingeschrieben -> (Name, cc, Land, Anzahl)
 _orte_sperre = threading.Lock()
 
 
@@ -951,6 +974,48 @@ def land_gewicht():
         except sqlite3.Error:
             _land_gewicht = {}
     return _land_gewicht
+
+
+def vergeben_vergessen():
+    """Naechste Ortssuche laedt die vergebenen Namen neu.
+
+    Aufzurufen, wo ein Ort geschrieben wird - sonst fehlte der eben von
+    Hand vergebene Name in der Vorschlagsliste, ausgerechnet dort, wo man
+    ihn gleich noch einmal braucht.
+    """
+    global _vergeben
+    _vergeben = None
+
+
+def vergebene_orte():
+    """Ortsnamen, die an Bildern schon dranstehen -> Vorschlagsliste.
+
+    Sowohl die geokodierten als auch die von Hand eingetragenen. Sie
+    stehen oben: was hier schon einmal vergeben wurde, ist beim naechsten
+    Bild fast immer wieder gemeint - und freie Eingaben ("Ferienhaus am
+    See") gibt es in orte.tsv ueberhaupt nicht.
+    """
+    global _vergeben
+    if _vergeben is None:
+        ort = "COALESCE(p.hand_place, p.place)"
+        d = {}
+        try:
+            for r in db().execute(
+                    f"SELECT {ort} AS o,"
+                    " COALESCE(p.hand_country, p.place_country) AS land,"
+                    " COALESCE(p.hand_cc, p.place_cc) AS cc, COUNT(*) AS n"
+                    f" FROM photos p WHERE {ort} IS NOT NULL AND {ort} <> ''"
+                    f" AND {NICHT_GELOESCHT}"
+                    " GROUP BY o, land, cc"):
+                k = r["o"].lower()
+                # Gleicher Name, verschiedene Laender: der haeufigere zaehlt
+                if k in d and d[k][3] >= r["n"]:
+                    continue
+                d[k] = (r["o"], r["cc"] or "", r["land"] or "", r["n"])
+        except sqlite3.Error:
+            d = {}
+        _vergeben = d
+    return _vergeben
 
 
 def orte_laden():
@@ -1029,6 +1094,13 @@ def api_ortsuche():
         if rk in REGION_VOR_ORT and rk.startswith(q):
             rang = -1
         treffer.append((rang, 0, region, cc, land, "", "Region"))
+    # Was hier schon vergeben ist, steht vor allem anderen: beim naechsten
+    # Bild desselben Ausflugs ist fast immer wieder derselbe Ort gemeint.
+    for k, (name, cc, land, anzahl) in vergebene_orte().items():
+        rang = -2 if k.startswith(q) else (2.5 if q in k else None)
+        if rang is None:
+            continue
+        treffer.append((rang, 0, -anzahl, 0, name, cc, land, "", "Ort", anzahl))
     # Bei Orten zaehlt, wo tatsaechlich fotografiert wurde - sonst stuende
     # Interlaken/Kalifornien (7321 Einwohner) vor Interlaken/Schweiz (5067).
     gewicht = land_gewicht()
@@ -1039,19 +1111,23 @@ def api_ortsuche():
             continue
         vorgabe = 1 if ORTS_VORGABEN.get(k) == cc else 0
         treffer.append((rang, -vorgabe, -gewicht.get(cc, 0), -pop,
-                        name, cc, land, region, "Ort"))
+                        name, cc, land, region, "Ort", 0))
     # Land und Region haben nur fuenf Felder - auf dieselbe Form bringen
-    treffer = [t if len(t) == 9 else (t[0], 0, 0, t[1], *t[2:]) for t in treffer]
+    treffer = [t if len(t) == 10 else (t[0], 0, 0, t[1], *t[2:], 0)
+               for t in treffer]
     treffer.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
 
     raus, gesehen = [], set()
-    for *_, name, cc, land, region, art in treffer:
-        schluessel = (name.lower(), cc, region, art)
-        if schluessel in gesehen:
+    for *_, name, cc, land, region, art, anzahl in treffer:
+        # Region bleibt aus dem Schluessel, sobald der Ort schon vergeben
+        # ist: sonst stuende Stutensee zweimal da, einmal mit Landkreis
+        # und einmal ohne.  Der vergebene Eintrag kommt zuerst und gewinnt.
+        schluessel = (name.lower(), cc, "" if anzahl else region, art)
+        if schluessel in gesehen or (name.lower(), cc, "", art) in gesehen:
             continue
         gesehen.add(schluessel)
         raus.append({"ort": name, "cc": cc, "land": land_name(cc, land),
-                     "region": region, "art": art})
+                     "region": region, "art": art, "vergeben": anzahl})
         if len(raus) >= 12:
             break
     return jsonify(raus)
@@ -1209,6 +1285,8 @@ def api_foto_speichern(photo_id):
         conn.commit()
     finally:
         conn.close()
+    if "hand_place" in felder:
+        vergeben_vergessen()
 
     a = ausdruecke()
     r = db().execute(
@@ -1302,15 +1380,21 @@ def api_umfeld(photo_id):
     OFFSET: waehrend des Uebernehmens verschieben sich die Bilder in der
     Liste, ein Zaehler zeigte danach auf etwas anderes.
 
+    Geliefert werden alle Bilder der Zeitachse, auch die, bei denen die
+    Angabe schon steht - erst die Nachbarn mit Ort verraten, wo die ohne
+    Ort entstanden sind.  "fehlt" sagt je Bild, ob es zum Stapel gehoert;
+    "hier" markiert das eben bearbeitete, es steht an seinem Platz mit
+    im Fenster.  "gesamt" zaehlt weiterhin nur die ohne Angabe.
+
     richtung: mitte (um das Bild herum), zurueck (aeltere), vor (neuere)
     """
     was = request.args.get("was", "beides")
     if was not in ("ort", "datum", "beides"):
         was = "beides"
     try:
-        n = min(max(int(request.args.get("n", 50)), 1), 200)
+        n = min(max(int(request.args.get("n", 20)), 1), 200)
     except ValueError:
-        n = 50
+        n = 20
     richtung = request.args.get("richtung", "mitte")
 
     a = ausdruecke()
@@ -1324,14 +1408,22 @@ def api_umfeld(photo_id):
     except (TypeError, ValueError):
         anker_id = photo_id
 
-    rumpf = (f"SELECT p.id, {ZEIT} AS z,"
-             f" {a['datum']} AS d_datum, {a['conf']} AS d_conf,"
-             f" {a['ort']} AS d_ort, {a['land']} AS d_land,"
-             f" {a['cc']} AS d_cc, {a['km']} AS d_km"
-             f" FROM photos p"
+    spalten = (f"SELECT p.id, {ZEIT} AS z,"
+               f" {a['datum']} AS d_datum, {a['conf']} AS d_conf,"
+               f" {a['ort']} AS d_ort, {a['land']} AS d_land,"
+               f" {a['cc']} AS d_cc, {a['km']} AS d_km,"
+               f" {_fehlt(was, a)} AS d_fehlt"
+               f" FROM photos p")
+    rumpf = (spalten +
              f" WHERE p.is_video = 0 AND p.thumb_state = 'ok'"
-             f"   AND {NICHT_GELOESCHT} AND {ZEIT} IS NOT NULL"
-             f"   AND p.id <> ? AND " + _fehlt(was, a))
+             f"   AND {NICHT_GELOESCHT} AND {ZEIT} IS NOT NULL")
+
+    def eintrag(r):
+        return {"id": r["id"], "zeit": r["z"], "fehlt": bool(r["d_fehlt"]),
+                "hier": r["id"] == photo_id,
+                "datum": datum_text(r["d_datum"], r["d_conf"]),
+                "ort": ort_text(r["d_ort"], r["d_land"], r["d_cc"],
+                                r["d_km"])}
 
     def hole(vorwaerts, zeit, pid, wieviel):
         """wieviel Bilder aelter (vorwaerts=False) bzw. neuer als der Anker."""
@@ -1343,11 +1435,8 @@ def api_umfeld(photo_id):
             wo = (f" AND (z < ? OR (z = ? AND p.id < ?))"
                   f" ORDER BY z DESC, p.id DESC LIMIT ?")
         rows = db().execute(rumpf + wo,
-                            (photo_id, zeit, zeit, pid, wieviel)).fetchall()
-        liste = [{"id": r["id"], "zeit": r["z"],
-                  "datum": datum_text(r["d_datum"], r["d_conf"]),
-                  "ort": ort_text(r["d_ort"], r["d_land"], r["d_cc"],
-                                  r["d_km"])} for r in rows]
+                            (zeit, zeit, pid, wieviel)).fetchall()
+        liste = [eintrag(r) for r in rows]
         if not vorwaerts:
             liste.reverse()                 # immer aelteste zuerst
         return liste
@@ -1359,12 +1448,17 @@ def api_umfeld(photo_id):
     else:
         # Um das Bild herum: halb/halb, und was die eine Seite nicht
         # hergibt, holt die andere nach - am Rand der Bibliothek sollen
-        # trotzdem 50 Bilder zusammenkommen.
-        alt = hole(False, anker_zeit, anker_id, n // 2)
-        neu = hole(True, anker_zeit, anker_id, n - len(alt))
-        if len(neu) < n - len(alt):
-            alt = hole(False, anker_zeit, anker_id, n - len(neu))
-        fenster = alt + neu
+        # trotzdem 20 Bilder zusammenkommen.
+        # Das Bild selbst steht mittendrin, damit man sieht, wo in der
+        # Zeitachse man ist.
+        selbst = db().execute(rumpf + " AND p.id = ?",
+                              (photo_id,)).fetchall()
+        rest = n - len(selbst)
+        alt = hole(False, anker_zeit, anker_id, rest // 2)
+        neu = hole(True, anker_zeit, anker_id, rest - len(alt))
+        if len(neu) < rest - len(alt):
+            alt = hole(False, anker_zeit, anker_id, rest - len(neu))
+        fenster = alt + [eintrag(r) for r in selbst] + neu
 
     if fenster:
         erste, letzte = fenster[0], fenster[-1]
@@ -1391,15 +1485,19 @@ def api_uebernehmen():
     immer auch Bilder, bei denen nur die eine der beiden Angaben fehlt -
     wuerde stumpf ueberschrieben, riebe das Nachtragen eines Ortes das
     schon bekannte Datum der Nachbarn weg.
+
+    Ausnahme "ersetzen": Bilder, bei denen die Angabe schon stand und die
+    trotzdem einzeln angetippt wurden.  Das ist eine bewusste Berichtigung,
+    dort wird ueberschrieben.  "Alle" waehlt sie deshalb nie mit aus.
     """
     daten = request.get_json(silent=True) or {}
-    ids = daten.get("ids")
-    if not isinstance(ids, list) or not ids:
-        return jsonify({"fehler": "ids nötig"}), 400
     try:
-        ids = [int(x) for x in ids]
+        ids = [int(x) for x in daten.get("ids") or []]
+        ersetzen = [int(x) for x in daten.get("ersetzen") or []]
     except (TypeError, ValueError):
         return jsonify({"fehler": "ids müssen Zahlen sein"}), 400
+    if not ids and not ersetzen:
+        return jsonify({"fehler": "ids nötig"}), 400
 
     ort = (daten.get("ort") or "").strip()
     roh = (daten.get("datum") or "").strip()
@@ -1418,9 +1516,13 @@ def api_uebernehmen():
     platz = ",".join("?" * len(ids))
     # Der Umweg ueber die Unterabfrage ist noetig, weil ausdruecke() den
     # Alias p benutzt, den ein UPDATE nicht kennt.
+    platz_e = ",".join("?" * len(ersetzen))
+
     def nur_fehlende(bedingung):
-        return (f" WHERE id IN (SELECT p.id FROM photos p"
-                f" WHERE p.id IN ({platz}) AND {bedingung})")
+        wo = f" WHERE id IN (SELECT p.id FROM photos p WHERE p.id IN ({platz}) AND {bedingung})"
+        if ersetzen:
+            wo += f" OR id IN ({platz_e})"
+        return wo
 
     conn = db_schreiben()
     try:
@@ -1430,7 +1532,7 @@ def api_uebernehmen():
                 "UPDATE photos SET hand_place = ?, hand_country = ?,"
                 " hand_cc = ?, hand_at = ?"
                 + nur_fehlende(f"{a['ort']} IS NULL"),
-                [ort, land, cc, jetzt, *ids])
+                [ort, land, cc, jetzt, *ids, *ersetzen])
             n_ort = cur.rowcount
         if gedeutet:
             cur = conn.execute(
@@ -1438,11 +1540,13 @@ def api_uebernehmen():
                 " hand_at = ?"
                 + nur_fehlende(f"({a['datum']} IS NULL"
                                f" OR {a['conf']} = 'unsicher')"),
-                [gedeutet[0], gedeutet[1], jetzt, *ids])
+                [gedeutet[0], gedeutet[1], jetzt, *ids, *ersetzen])
             n_datum = cur.rowcount
         conn.commit()
     finally:
         conn.close()
+    if ort:
+        vergeben_vergessen()
     return jsonify({"ok": True, "ort": n_ort, "datum": n_datum,
                     "anzahl": max(n_ort, n_datum), "stand": stand()})
 
@@ -1761,6 +1865,66 @@ def _cast_verbinden(name):
     return cast, browser
 
 
+CAST_VERLAUF = 500          # so viele gezeigte Bilder merkt sich der Fernseher
+
+
+def _ordnung(bilder):
+    """Nachschlagewerke zur Playlist -> (chrono, rang, plaetze).
+
+    chrono[r] ist der Platz des r-ten Bildes in der Zeit, rang[platz] der
+    Umkehrweg, plaetze[id] der Platz eines Bildes.  Im Zufallsmodus sagt
+    der Nachbar in der Playlist nichts ueber das Bild, der zeitliche
+    Nachbar fast immer - deshalb die zweite Ordnung.
+    """
+    chrono = sorted(range(len(bilder)), key=lambda k: bilder[k][4])
+    return (chrono,
+            {k: r for r, k in enumerate(chrono)},
+            {b[0]: k for k, b in enumerate(bilder)})
+
+
+def _zeit_nachbar(platz, richtung, chrono, rang):
+    """Der zeitliche Nachbar eines Platzes, am Rand umlaufend."""
+    r = rang.get(platz)
+    if r is None or not chrono:
+        return None
+    return chrono[(r + richtung) % len(chrono)]
+
+
+def _verlauf_schritt(verlauf, v_pos, richtung, plaetze):
+    """Ein Schritt durch den Verlauf -> (v_pos, platz) oder None.
+
+    Bilder, die inzwischen im Papierkorb liegen, werden uebersprungen;
+    ist der Verlauf in dieser Richtung zu Ende, kommt None zurueck.
+    """
+    p = v_pos
+    while True:
+        p += richtung
+        if not 0 <= p < len(verlauf):
+            return None
+        platz = plaetze.get(verlauf[p])
+        if platz is not None:
+            return p, platz
+
+
+def _verlauf_merken(verlauf, v_pos, bild_id, richtung):
+    """Ein neu gezeigtes Bild in den Verlauf haengen -> neues v_pos.
+
+    Rueckwaerts wird vorn angesetzt, vorwaerts hinten - und was vorwaerts
+    dazukommt, verwirft den bisherigen Vorwaertsteil: von dort aus ist
+    dieses Bild jetzt das naechste.
+    """
+    if richtung < 0:
+        verlauf.insert(0, bild_id)
+        del verlauf[CAST_VERLAUF:]
+        return 0
+    del verlauf[v_pos + 1:]
+    verlauf.append(bild_id)
+    ueber = len(verlauf) - CAST_VERLAUF
+    if ueber > 0:
+        del verlauf[:ueber]
+    return len(verlauf) - 1
+
+
 def _cast_lauf():
     """Schickt der Reihe nach Bilder an den Fernseher.
 
@@ -1771,6 +1935,12 @@ def _cast_lauf():
     """
     cast = browser = None
     bilder, marke, n = [], None, 0
+    chrono, rang, plaetze = [], {}, {}
+    richtung = 1                # wohin zuletzt geblaettert wurde
+    # Was wirklich zu sehen war, in dieser Reihenfolge.  Nur so zeigt
+    # "zurueck" genau die zuvor gezeigten Bilder - die Playlist allein
+    # weiss nichts davon, wenn zwischendurch nachgeladen wurde.
+    verlauf, v_pos = [], -1
     zeigen = True
     fehlversuche = 0
     basis = f"http://{eigene_adresse()}:{PORT}"
@@ -1798,9 +1968,17 @@ def _cast_lauf():
             jetzt = stand()
             if jetzt != marke or not bilder:
                 e = einstellungen_lesen()
+                lief = bilder[n % len(bilder)][0] if bilder else None
                 bilder = playlist(e["modus"], e["alben"], None,
                                   e["ohne_album"])
-                marke, n = jetzt, 0
+                chrono, rang, plaetze = _ordnung(bilder)
+                marke = jetzt
+                # Dort weitermachen, wo der Fernseher steht.  Frueher stand
+                # hier n = 0: jede Aenderung - ein geloeschtes Bild, ein
+                # nachgetragener Ort - warf die Ausgabe zurueck an den
+                # Anfang, und "zurueck" zeigte danach Fremdes.
+                n = next((k for k, b in enumerate(bilder) if b[0] == lief),
+                         n % len(bilder) if bilder else 0)
                 with _cast_sperre:
                     CAST["anzahl"] = len(bilder)
             if not bilder:
@@ -1810,13 +1988,16 @@ def _cast_lauf():
 
             n %= len(bilder)
             if zeigen:
-                bild_id, datum, ort, _ = bilder[n]
+                bild_id, datum, ort = bilder[n][:3]
                 cast.media_controller.play_media(
                     f"{basis}/cast/bild/{bild_id}", "image/jpeg",
                     title=" · ".join(x for x in (datum, ort) if x) or None)
                 with _cast_sperre:
                     CAST["bild_nr"] = n + 1
                     CAST["bild"] = [bild_id, datum, ort]
+                if not (0 <= v_pos < len(verlauf)
+                        and verlauf[v_pos] == bild_id):
+                    v_pos = _verlauf_merken(verlauf, v_pos, bild_id, richtung)
 
             # Pausiert wird ohne Frist gewartet - geweckt wird ohnehin,
             # sobald ein Befehl kommt oder jemand ausschaltet.
@@ -1842,15 +2023,29 @@ def _cast_lauf():
                           None)
                 zeigen = wo is not None
                 if zeigen:
-                    n = wo
+                    richtung, n = 1, wo
             elif schritt:
-                n += schritt
+                # Von Hand geblaettert: erst durch den Verlauf, dann
+                # zeitlich weiter.  Ein Zufallsnachbar sagt nichts ueber
+                # das Bild - der zeitliche Nachbar zeigt denselben Ausflug.
+                richtung = 1 if schritt > 0 else -1
+                for _ in range(abs(schritt)):
+                    treffer = _verlauf_schritt(verlauf, v_pos, richtung,
+                                               plaetze)
+                    if treffer is not None:
+                        v_pos, n = treffer
+                        continue
+                    k = _zeit_nachbar(n, richtung, chrono, rang)
+                    if k is None:
+                        break
+                    n = k
                 zeigen = True
             else:
                 # regulaerer Ablauf der Anzeigedauer; im Pausenzustand
                 # bleibt das Bild stehen
                 zeigen = not geweckt and not CAST["pausiert"]
                 if zeigen:
+                    richtung = 1
                     n += 1
 
         except Exception as exc:                       # pragma: no cover

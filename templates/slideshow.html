@@ -219,6 +219,7 @@
   .vorschlaege div { padding: .5rem .65rem; cursor: pointer; }
   .vorschlaege div:hover, .vorschlaege div.aktiv { background: #263041; }
   .vorschlaege .land { color: #8b9096; font-size: .82rem; }
+  .vorschlaege .schon { color: #6ea8fe; font-size: .78rem; margin-left: .35rem; }
 
   .werkbank .knoepfe { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
   /* Der Melder sitzt jetzt zwischen Knöpfen und Ortsfeld - ohne festen
@@ -302,23 +303,46 @@
   .dialog button.wichtig { background: #6ea8fe; border-color: #6ea8fe;
                            color: #0c1116; font-weight: 600; }
   .dialog button.wichtig:hover { background: #8bbcff; }
+  /* Ort noch einmal ändern, bevor er auf den Stapel geschrieben wird */
+  .dialog .ortzeile { margin-top: .7rem; display: flex; align-items: center; gap: .5rem; }
+  .dialog .ortzeile label { color: #8b9096; font-size: .85rem; }
+  .dialog .ortsuche { flex: 1; position: relative; }
+  .dialog .ortzeile input {
+    width: 100%; background: #101215; border: 1px solid #2c2f34; color: #e8e8e8;
+    border-radius: 6px; padding: .45rem .6rem; font: inherit;
+  }
+  /* Der Kopf des Dialogs steht ueber dem Kachelfeld, die Liste muss darueber */
+  .dialog .vorschlaege { z-index: 60; }
+  /* display:flex oben ueberschreibt das eingebaute [hidden] des Browsers */
+  .dialog .ortzeile[hidden] { display: none; }
 
-  .kacheln { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  .kacheln { display: grid; grid-template-columns: repeat(auto-fill, minmax(14.3rem, 1fr));
              gap: .7rem; }
   .kacheln figure {
     position: relative; border-radius: 8px; overflow: hidden; cursor: pointer;
     border: 2px solid transparent; background: #000;
   }
-  .kacheln figure img { width: 100%; height: 6.5rem; object-fit: cover; display: block;
+  .kacheln figure img { width: 100%; height: 11rem; object-fit: cover; display: block;
                         opacity: .45; transition: opacity .15s; }
   .kacheln figcaption {
-    padding: .25rem .4rem .35rem; font-size: .72rem; line-height: 1.25;
+    padding: .3rem .5rem .4rem; font-size: .8rem; line-height: 1.25;
     color: #8b9096; background: #101215; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
   }
   .kacheln figure.an figcaption { color: #c8ccd1; }
   .kacheln figure.an { border-color: #6ea8fe; }
   .kacheln figure.an img { opacity: 1; }
+  /* Nachbarn, bei denen die Angabe schon steht: nur zur Orientierung,
+     "Alle" nimmt sie nicht mit.  Einzeln angetippt wird ueberschrieben -
+     deshalb orange statt blau. */
+  .kacheln figure.hat figcaption .wert { color: #6ea8fe; }
+  .kacheln figure.hat.an { border-color: #e0a33a; }
+  .kacheln figure.hat.an .haken { background: #e0a33a; border-color: #e0a33a; }
+  /* das eben bearbeitete Bild, wie im Filmstreifen mit rotem Punkt */
+  .kacheln figure.hier::after {
+    content: ""; position: absolute; left: 50%; top: .55rem; width: .7rem; height: .7rem;
+    margin-left: -.35rem; border-radius: 50%; background: #d9534f;
+  }
   .kacheln .haken {
     position: absolute; top: .4rem; left: .4rem; width: 1.4rem; height: 1.4rem;
     border-radius: 50%; border: 2px solid rgba(255,255,255,.75);
@@ -422,11 +446,18 @@
     <header>
       <h3 id="dTitel">Hier auch diesen Ort eintragen?</h3>
       <div class="unter" id="dUnter"></div>
+      <div class="ortzeile" id="dOrtZeile" hidden>
+        <label for="dOrt">Ort</label>
+        <div class="ortsuche">
+          <input type="text" id="dOrt" autocomplete="off" placeholder="Ort suchen …">
+          <div class="vorschlaege" id="dVorschlaege" hidden></div>
+        </div>
+      </div>
     </header>
     <div class="koerper"><div class="kacheln" id="dKacheln"></div></div>
     <footer>
-      <button class="pfeil" id="dZurueck" title="50 ältere Bilder">‹</button>
-      <button class="pfeil" id="dVor" title="50 neuere Bilder">›</button>
+      <button class="pfeil" id="dZurueck" title="Ältere Bilder">‹</button>
+      <button class="pfeil" id="dVor" title="Neuere Bilder">›</button>
       <span class="seite" id="dSeite"></span>
       <button id="dAlle">Alle</button>
       <button id="dKeine">Keine</button>
@@ -449,7 +480,7 @@
   const elInfo  = $("info"), elDatum = $("datum"), elOrt = $("ort");
   const elMeldung = $("meldung"), elPause = $("pausezeichen");
 
-  let bilder = [];        // [id, datum, ort, vonHand]
+  let bilder = [];        // [id, datum, ort, vonHand, zeitrang]
   let dauer  = 8000;
   let i = -1, vorne = 0, uhr = null;
   let pausiert = false, fehler = 0, infoMarke = 0;
@@ -465,7 +496,9 @@
     return fetch("/api/playlist?" + abfrage.toString())
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => {
+        const lief = bilder[i] ? bilder[i][0] : null;
         bilder = d.bilder;
+        ordnungAufbauen();
         dauer = d.dauer * 1000;
         stand = d.stand;
         // Größen aus settings.json - beim ersten Laden und nach jeder
@@ -489,17 +522,92 @@
           // Fernseher nicht weiterschalten - nur still etwas anzeigen,
           // bis castHolen das richtige Bild nachreicht.
           else if (castFolgen) zeige(bilder[0]);
-          else { i = -1; weiter(+1); }
-        } else if (i >= bilder.length) { i = bilder.length - 1; }
+          else { merken(0, +1); zeige(bilder[0]); vorladen(0); }
+        } else {
+          // Beim Nachladen auf dem gezeigten Bild stehenbleiben.  Der
+          // Zeiger allein taugt dafür nicht: fällt ein Bild weg, rutscht
+          // alles dahinter um einen Platz.
+          const k = lief === null ? -1 : platzVon(lief);
+          i = k >= 0 ? k : Math.min(i, bilder.length - 1);
+        }
       });
   }
 
-  ladePlaylist(true).catch(e =>
-    { elMeldung.textContent = "Playlist nicht ladbar (" + e + ")"; });
 
-  // Blättern in der Playlist.  Im Edit-Modus läuft das Blättern
-  // stattdessen über editBlaettern, also zeitlich.
-  function weiter(richtung) {
+  // ------------------------------------------- Verlauf und Zeitnachbarn
+
+  // „Zurück" soll genau die Bilder zeigen, die eben zu sehen waren -
+  // deshalb ein eigener Verlauf und nicht bloß i-1: die Playlist kann
+  // zwischendurch nachgeladen worden sein.  Ist der Verlauf aufgebraucht,
+  // geht es zeitlich weiter; ein Zufallsnachbar sagt nichts über das Bild,
+  // der zeitliche zeigt fast immer denselben Ausflug.
+  const VERLAUF_MAX = 500;
+  let verlauf = [], vPos = -1;
+  let platzZu = new Map();          // id -> Platz in bilder
+  let chrono = [], rangZu = new Map();
+
+  function ordnungAufbauen() {
+    platzZu = new Map();
+    bilder.forEach((b, k) => platzZu.set(b[0], k));
+    chrono = bilder.map((b, k) => k).sort((a, b) => bilder[a][4] - bilder[b][4]);
+    rangZu = new Map();
+    chrono.forEach((k, r) => rangZu.set(k, r));
+  }
+
+  const platzVon = id => platzZu.has(id) ? platzZu.get(id) : -1;
+
+  // Der zeitliche Nachbar, am Rand der Bibliothek umlaufend:
+  // stehenbleiben wäre schlimmer als vorn weiterzumachen.
+  function zeitNachbar(k, richtung) {
+    const r = rangZu.get(k);
+    if (r === undefined || !chrono.length) return -1;
+    return chrono[(r + richtung + chrono.length) % chrono.length];
+  }
+
+  // Ein Schritt durch den Verlauf; was inzwischen im Papierkorb liegt,
+  // wird übersprungen.  -1, wenn der Verlauf hier zu Ende ist.
+  function verlaufSchritt(richtung) {
+    let p = vPos;
+    for (;;) {
+      p += richtung;
+      if (p < 0 || p >= verlauf.length) return -1;
+      const k = platzVon(verlauf[p]);
+      if (k >= 0) { vPos = p; return k; }
+    }
+  }
+
+  // Rückwärts wird vorn angesetzt, vorwärts hinten - und was vorwärts
+  // dazukommt, verwirft den bisherigen Vorwärtsteil: von dort aus ist
+  // dieses Bild jetzt das nächste.
+  function merken(k, richtung) {
+    const id = bilder[k][0];
+    if (richtung < 0) {
+      verlauf.unshift(id);
+      verlauf.length = Math.min(verlauf.length, VERLAUF_MAX);
+      vPos = 0;
+    } else {
+      verlauf.length = vPos + 1;
+      verlauf.push(id);
+      const zuviel = verlauf.length - VERLAUF_MAX;
+      if (zuviel > 0) verlauf.splice(0, zuviel);
+      vPos = verlauf.length - 1;
+    }
+  }
+
+  let letzteRichtung = +1;
+
+  function zeigePlatz(k, richtung, ausVerlauf) {
+    letzteRichtung = richtung;
+    if (!ausVerlauf) merken(k, richtung);
+    i = k;
+    zeige(bilder[i]);
+    vorladen(i);
+  }
+
+  // ‹ und › von Hand, dazu Pfeiltasten und Wischen: erst durch den
+  // Verlauf, dann zeitlich weiter.  Im Edit-Modus blättert stattdessen
+  // editBlaettern, ebenfalls zeitlich.
+  function blaettern(richtung) {
     clearTimeout(uhr);
     // Im Cast-Modus blättert das Tablet den Fernseher weiter, nicht sich
     // selbst - es zieht danach von allein nach.
@@ -508,10 +616,26 @@
       return;
     }
     if (!bilder.length) return;
-    i = (i + richtung + bilder.length) % bilder.length;
-    zeige(bilder[i]);
-    vorladen(i);
+    const ausVerlauf = verlaufSchritt(richtung);
+    if (ausVerlauf >= 0) { zeigePlatz(ausVerlauf, richtung, true); return; }
+    const k = zeitNachbar(i, richtung);
+    if (k >= 0) zeigePlatz(k, richtung, false);
   }
+
+  // Die Uhr bleibt bei der Playlist - im Zufallsmodus also gemischt, ab
+  // dem gerade gezeigten Bild.  Von Hand geblättert wird zeitlich, die
+  // laufende Schau bleibt aber die, die eingestellt ist.
+  function automatisch() {
+    clearTimeout(uhr);
+    if (castFolgen && !bearbeiten) return;
+    if (!bilder.length) return;
+    zeigePlatz((i + 1) % bilder.length, +1, false);
+  }
+
+  // Erst hier, damit beim Eintreffen der Playlist alles steht, was sie
+  // braucht - Verlauf, Ordnung und das Blättern.
+  ladePlaylist(true).catch(e =>
+    { elMeldung.textContent = "Playlist nicht ladbar (" + e + ")"; });
 
   function zeige(eintrag) {
     const [id, datum, ort] = eintrag;
@@ -525,7 +649,7 @@
       setzeInfo(datum, ort);
       // Im Cast-Modus gibt der Fernseher den Takt vor, nicht das Tablet.
       if (!pausiert && !bearbeiten && !castFolgen) {
-        uhr = setTimeout(() => weiter(+1), dauer);
+        uhr = setTimeout(automatisch, dauer);
       }
     };
 
@@ -535,7 +659,10 @@
         elMeldung.textContent = "Zu viele fehlende Bilder im Cache.";
         return;
       }
-      weiter(+1);
+      // In die Richtung weiter, in die zuletzt geblättert wurde -
+      // wer zurückgeht, will nicht wegen eines fehlenden Thumbnails
+      // plötzlich vorwärts springen.
+      if (letzteRichtung < 0) blaettern(-1); else automatisch();
     };
 
     hinten.src = "/bild/" + id;
@@ -580,7 +707,7 @@
     $("kPause").textContent = pausiert ? "▶" : "⏸";
     $("kPause").title = pausiert ? "Weiter" : "Pause";
     if (pausiert) clearTimeout(uhr);
-    else uhr = setTimeout(() => weiter(+1), dauer);
+    else uhr = setTimeout(automatisch, dauer);
     // erst hier, damit die Ruhefrist zum neuen Zustand passt
     regen();
   }
@@ -622,7 +749,7 @@
     } else {
       versteckeVorschlaege();
       // Slideshow läuft sofort weiter, an der Stelle der Playlist
-      if (bilder.length) weiter(+1);
+      if (bilder.length) automatisch();
     }
   }
 
@@ -736,46 +863,101 @@
     if (jetzt) jetzt.scrollIntoView({block: "nearest", inline: "center"});
   }
 
-  // Ortssuche
-  let ortWahl = null, suchUhr = null, markiert = -1;
-  const elVor = $("vorschlaege");
+  // Ortssuche.  Zweimal gebraucht - in der Werkbank und im Kopf des
+  // Nachtrag-Dialogs -, und beide sollen sich gleich anfühlen: dieselbe
+  // Vorschlagsliste, dieselben Pfeiltasten, dasselbe übernommene Land.
+  // Deshalb steht sie hier einmal und wird zweimal angehängt.
+  function ortsucheBauen(feldId, listeId, ruf) {
+    const feld = $(feldId), liste = $(listeId);
+    let uhr = null, markiert = -1;
 
-  $("fOrt").addEventListener("input", () => {
-    ortWahl = null;
-    $("ortTipp").textContent = "Aus der Liste wählen ergänzt das Land";
-    clearTimeout(suchUhr);
-    const q = $("fOrt").value.trim();
-    if (q.length < 2) { versteckeVorschlaege(); return; }
-    suchUhr = setTimeout(() => {
-      fetch("/api/ortsuche?q=" + encodeURIComponent(q))
-        .then(r => r.json()).then(zeigeVorschlaege);
-    }, 200);
-  });
+    function verstecken() { liste.hidden = true; markiert = -1; }
 
-  function zeigeVorschlaege(liste) {
-    elVor.innerHTML = "";
-    markiert = -1;
-    if (!liste.length) { versteckeVorschlaege(); return; }
-    for (const v of liste) {
-      const d = document.createElement("div");
-      d.appendChild(document.createTextNode(v.ort + " "));
-      const l = document.createElement("span");
-      l.className = "land";
-      // Art und Region mit anzeigen - sonst sehen die vier "Oregon" gleich
-      // aus, und der Bundesstaat wäre von ihnen nicht zu unterscheiden
-      const teile = [];
-      if (v.art && v.art !== "Ort") teile.push(v.art);
-      if (v.region) teile.push(v.region);
-      if (v.land || v.cc) teile.push(v.land || v.cc);
-      l.textContent = teile.join(", ");
-      d.appendChild(l);
-      d.onclick = () => waehleOrt(v);
-      elVor.appendChild(d);
+    function zeigen(treffer) {
+      liste.innerHTML = "";
+      markiert = -1;
+      if (!treffer.length) { verstecken(); return; }
+      for (const v of treffer) {
+        const d = document.createElement("div");
+        d.appendChild(document.createTextNode(v.ort + " "));
+        const l = document.createElement("span");
+        l.className = "land";
+        // Art und Region mit anzeigen - sonst sehen die vier "Oregon" gleich
+        // aus, und der Bundesstaat wäre von ihnen nicht zu unterscheiden
+        const teile = [];
+        if (v.art && v.art !== "Ort") teile.push(v.art);
+        if (v.region) teile.push(v.region);
+        if (v.land || v.cc) teile.push(v.land || v.cc);
+        l.textContent = teile.join(", ");
+        d.appendChild(l);
+        // Schon vergebene Namen stehen oben und tragen ihre Anzahl: das
+        // unterscheidet den Ort, an dem man wirklich war, von den vielen
+        // gleichnamigen aus der Ortsdatenbank.
+        if (v.vergeben) {
+          const b = document.createElement("span");
+          b.className = "schon";
+          b.textContent = "· " + v.vergeben
+            + (v.vergeben === 1 ? " Bild" : " Bilder");
+          d.appendChild(b);
+        }
+        d.onclick = () => {
+          feld.value = v.ort;
+          verstecken();
+          ruf.wahl(v);
+        };
+        liste.appendChild(d);
+      }
+      liste.hidden = false;
     }
-    elVor.hidden = false;
+
+    feld.addEventListener("input", () => {
+      if (ruf.eingabe) ruf.eingabe();
+      clearTimeout(uhr);
+      const q = feld.value.trim();
+      if (q.length < 2) { verstecken(); return; }
+      uhr = setTimeout(() => {
+        fetch("/api/ortsuche?q=" + encodeURIComponent(q))
+          .then(r => r.json()).then(zeigen).catch(() => {});
+      }, 200);
+    });
+
+    feld.addEventListener("keydown", ev => {
+      const eintraege = [...liste.children];
+      if (liste.hidden || !eintraege.length) return;
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        markiert += ev.key === "ArrowDown" ? 1 : -1;
+        markiert = (markiert + eintraege.length) % eintraege.length;
+        eintraege.forEach((e, n) => e.classList.toggle("aktiv", n === markiert));
+      } else if (ev.key === "Enter" && markiert >= 0) {
+        // ohne stopPropagation spränge dahinter noch "Speichern" an
+        ev.preventDefault(); ev.stopPropagation();
+        eintraege[markiert].click();
+      } else if (ev.key === "Escape") {
+        ev.stopPropagation(); verstecken();
+      }
+    });
+
+    return {zeigen, verstecken};
   }
 
-  function versteckeVorschlaege() { elVor.hidden = true; markiert = -1; }
+  // --- Ortsfeld der Werkbank
+  let ortWahl = null;
+
+  const ortsucheWerkbank = ortsucheBauen("fOrt", "vorschlaege", {
+    wahl: v => {
+      ortWahl = v;
+      $("ortTipp").textContent = "Land: " + (v.land || v.cc || "—");
+    },
+    eingabe: () => {
+      // Freier Text ist kein Treffer aus der Liste - das Land des zuletzt
+      // gewählten Ortes passte dann womöglich nicht mehr.
+      ortWahl = null;
+      $("ortTipp").textContent = "Aus der Liste wählen ergänzt das Land";
+    },
+  });
+
+  function versteckeVorschlaege() { ortsucheWerkbank.verstecken(); }
 
   function albumAlsOrt(album) {
     fetch("/api/album-als-ort?album=" + encodeURIComponent(album))
@@ -787,13 +969,6 @@
           (v.quelle ? ` (${v.quelle})` : "") + (v.land ? " · " + v.land : "");
         versteckeVorschlaege();
       });
-  }
-
-  function waehleOrt(v) {
-    ortWahl = v;
-    $("fOrt").value = v.ort;
-    $("ortTipp").textContent = "Land: " + (v.land || v.cc || "—");
-    versteckeVorschlaege();
   }
 
   // dannWeiter=true  -> zeitlich nächstes Bild bearbeiten
@@ -835,7 +1010,7 @@
       if (bilder[i] && bilder[i][0] === foto.id) setzeInfo(a.datum, a.ort);
 
       // Nur beim Nachtragen fragen, nicht beim Berichtigen: wer einen
-      // schon vorhandenen Ort korrigiert, will nicht 50 Nachbarn ändern.
+      // schon vorhandenen Ort korrigiert, will nicht 20 Nachbarn ändern.
       const ortNeu   = !!koerper.ort   && !foto.hatte_ort;
       const datumNeu = !!koerper.datum && !foto.hatte_datum;
       if (ortNeu || datumNeu) {
@@ -860,30 +1035,68 @@
 
   // ------------------------------- Datum und Ort auf den Stapel übernehmen
 
-  // Nach dem Nachtragen kommen die zeitlich nächsten Bilder, bei denen
-  // dieselbe Angabe fehlt - 50 auf einmal, mit ‹ › durch die älteren und
-  // neueren. Zeitlich nächste heißt: nach dem eingetragenen Datum, sonst
+  // Nach dem Nachtragen kommen die zeitlich nächsten 20 Bilder, mit ‹ ›
+  // durch die älteren und neueren.  Auch die, bei denen die Angabe schon
+  // steht: erst sie verraten, wo die anderen entstanden sind.  Zum Stapel
+  // gehören nur die ohne (b.fehlt); die anderen lassen sich einzeln
+  // antippen und werden dann überschrieben. Zeitlich nächste heißt: nach dem eingetragenen Datum, sonst
   // dem aus dem Import, sonst dem Dateidatum (siehe ZEIT in viewer.py).
   let dAuswahl = new Set(), dWerte = null, dFertig = null, dWas = "beides";
   let dFoto = null, dFenster = [], dLaeuft = false, dGesamt = 0;
+  // id -> fehlt, über alle Fenster: die Auswahl überlebt das Blättern,
+  // beim Übernehmen muss sie trotzdem wissen, was ersetzt wird.
+  let dFehlt = new Map();
   // Wo das gezeigte Fenster herkommt - damit es sich nach dem Übernehmen
   // an derselben Stelle neu füllen kann.
   let dStelle = {richtung: "mitte", anker: null};
 
   function fragenachUmfeld(foto, werte, was, fertig) {
     dFertig = fertig; dFoto = foto; dWerte = werte; dWas = was;
-    dAuswahl = new Set(); dFenster = [];
+    dAuswahl = new Set(); dFenster = []; dFehlt = new Map();
     $("dTitel").textContent = "Hier auch eintragen?";
     $("dNein").textContent = "Nein danke";
+    ortFeldSetzen();
     holeUmfeld("mitte", null, "start");
   }
+
+  // Das Editfeld im Kopf des Dialogs: dort lässt sich der Ort, der gleich
+  // auf den Stapel geschrieben wird, noch einmal ändern.  Gezeigt wird es
+  // nur, wenn überhaupt ein Ort vergeben wird - bei "nur Datum" bleibt es zu.
+  function ortFeldSetzen() {
+    const zeile = $("dOrtZeile");
+    const hatOrt = !!(dWerte && dWerte.ort);
+    zeile.hidden = !hatOrt;
+    if (hatOrt) $("dOrt").value = dWerte.ort;
+    ortsucheDialog.verstecken();
+  }
+  // Dasselbe Ortsfeld wie in der Werkbank, samt Vorschlagsliste: hier wird
+  // der Ort für einen ganzen Stapel festgelegt, da wäre ein reines Textfeld
+  // die schlechtere Hälfte der Bedienung.
+  const ortsucheDialog = ortsucheBauen("dOrt", "dVorschlaege", {
+    wahl: v => {
+      if (!dWerte) return;
+      dWerte.ort = v.ort;
+      dWerte.land = v.land || ""; dWerte.cc = v.cc || "";
+      kopfSchreiben();
+      zaehleDialog();
+    },
+    eingabe: () => {
+      if (!dWerte) return;
+      dWerte.ort = $("dOrt").value.trim();
+      // Freier Text ist kein Treffer aus der Ortsliste: das Land des
+      // ursprünglichen Vorschlags passte dann womöglich nicht mehr.
+      dWerte.land = ""; dWerte.cc = "";
+      kopfSchreiben();
+      zaehleDialog();
+    },
+  });
 
   // art: "start" (Dialog öffnen), "blaettern", "auffrischen" (nach dem
   // Übernehmen an derselben Stelle nachladen)
   function holeUmfeld(richtung, anker, art) {
     if (dLaeuft) return;
     dLaeuft = true;
-    const q = new URLSearchParams({was: dWas, n: 50, richtung});
+    const q = new URLSearchParams({was: dWas, n: 20, richtung});
     if (anker) { q.set("anker_zeit", anker.zeit || ""); q.set("anker_id", anker.id); }
     fetch(`/api/foto/${dFoto.id}/umfeld?` + q)
       .then(r => r.json()).then(d => {
@@ -900,7 +1113,9 @@
         // Nur das erste Fenster kommt vorausgewählt: das gehört zum eben
         // bearbeiteten Bild. Wer weiterblättert oder gerade übernommen
         // hat, sucht erst - da wäre "alles ausgewählt" eine Falle.
-        if (art === "start") for (const b of d.bilder) dAuswahl.add(b.id);
+        for (const b of d.bilder) dFehlt.set(b.id, b.fehlt);
+        if (art === "start")
+          for (const b of d.bilder) if (b.fehlt && !b.hier) dAuswahl.add(b.id);
         zeichneUmfeld(d);
         if (art === "start") $("schleier").hidden = false;
       }).catch(() => { dLaeuft = false; });
@@ -911,9 +1126,13 @@
     if (dWerte.ort) teile.push(`„${dWerte.ort}“`);
     if (dWerte.datum) teile.push(`„${dWerte.datum}“`);
     $("dUnter").textContent =
-      `${dGesamt} Bilder in der Nähe haben noch keine Angabe. `
-      + `Ausgewählte bekommen ${teile.join(" und ")} — `
-      + `ergänzt wird nur, was dort fehlt. `
+      `${dGesamt} Bilder haben noch keine Angabe; blau Beschriftete haben `
+      + `schon eine und stehen nur zur Orientierung dabei. `
+      + (teile.length
+         ? `Ausgewählte bekommen ${teile.join(" und ")} — ergänzt wird nur, `
+           + `was fehlt; einzeln angetippte mit Angabe (orange) werden `
+           + `überschrieben. `
+         : `Ohne Ort gibt es nichts zu übernehmen. `)
       + `✎ öffnet ein Bild zum Bearbeiten, 🗑 wirft es weg.`;
   }
 
@@ -940,13 +1159,27 @@
   function kachel(b) {
     const f = document.createElement("figure");
     f.classList.toggle("an", dAuswahl.has(b.id));
+    f.classList.toggle("hat", !b.fehlt);
+    f.classList.toggle("hier", !!b.hier);
     f.dataset.id = b.id;
+    f.dataset.fehlt = b.fehlt ? "1" : "";
     const img = document.createElement("img");
     img.src = "/vorschau/" + b.id; img.loading = "lazy"; img.alt = "";
     const h = document.createElement("div");
     h.className = "haken"; h.textContent = "✓";
     const c = document.createElement("figcaption");
-    c.textContent = [b.datum || "ohne Datum", b.ort || "ohne Ort"].join(" · ");
+    // Die schon vorhandene Angabe blau, damit man sieht, woran man sich
+    // beim Zuordnen halten kann.
+    const wert = document.createElement("span");
+    wert.className = "wert";
+    if (dWas === "datum") {
+      wert.textContent = b.datum || "ohne Datum";
+      c.append(wert, " · " + (b.ort || "ohne Ort"));
+    } else {
+      wert.textContent = b.ort || "ohne Ort";
+      c.append((b.datum || "ohne Datum") + " · ", wert);
+    }
+    c.title = c.textContent;
     // Zwei weitere Wege aus dem Dialog: das Bild selbst bearbeiten oder es
     // wegwerfen. Ein Stapel enthält fast immer eines, das anders liegt als
     // der Rest - und oft genug eines, das keiner mehr braucht.
@@ -989,9 +1222,9 @@
         f.remove();
         dAuswahl.delete(b.id);
         dFenster = dFenster.filter(x => x.id !== b.id);
-        if (dGesamt > 0) dGesamt--;
+        if (b.fehlt && dGesamt > 0) dGesamt--;
         const n = bilder.findIndex(x => x[0] === b.id);
-        if (n >= 0) { bilder.splice(n, 1); if (n < i) i--; }
+        if (n >= 0) { bilder.splice(n, 1); if (n < i) i--; ordnungAufbauen(); }
         kopfSchreiben();
         fussSchreiben();
         if (!dFenster.length) erledige();
@@ -1003,14 +1236,22 @@
   $("dVor").onclick     = () => { if (dFenster.length) holeUmfeld("vor", dFenster[dFenster.length - 1], "blaettern"); };
 
   function zaehleDialog() {
+    // Wer das Ortsfeld leerräumt, hat nichts mehr zu übernehmen:
+    // /api/uebernehmen antwortete darauf mit 400, und die Seite meldete
+    // trotzdem „Nichts zu ergänzen“.
+    const nichts = !(dWerte && (dWerte.ort || dWerte.datum));
+    const ersetzt = [...dAuswahl].filter(id => dFehlt.get(id) === false).length;
     $("dJa").textContent = dAuswahl.size
-      ? `Für ${dAuswahl.size} Bilder übernehmen` : "Übernehmen";
-    $("dJa").disabled = !dAuswahl.size;
+      ? `Für ${dAuswahl.size} Bilder übernehmen`
+        + (ersetzt ? ` (${ersetzt} überschrieben)` : "")
+      : "Übernehmen";
+    $("dJa").disabled = !dAuswahl.size || nichts;
   }
 
   function dialogZu() {
     $("schleier").hidden = true;
-    dAuswahl.clear(); dWerte = null; dFenster = [];
+    ortsucheDialog.verstecken();
+    dAuswahl.clear(); dWerte = null; dFenster = []; dFehlt.clear();
   }
 
   // erst den Dialog wegräumen, dann das tun, was nach dem Speichern
@@ -1025,9 +1266,12 @@
 
   // "Alle"/"Keine" gelten für das gezeigte Fenster; ausgewählte Bilder aus
   // anderen Fenstern bleiben in der Auswahl, der Knopf rechts zählt alles.
+  // "Alle" heißt: alle ohne Angabe.  Wer Vorhandenes überschreiben will,
+  // tippt es einzeln an.
   function alleKacheln(an) {
     for (const f of $("dKacheln").children) {
       const id = parseInt(f.dataset.id, 10);
+      if (an && !f.dataset.fehlt) continue;
       f.classList.toggle("an", an);
       if (an) dAuswahl.add(id); else dAuswahl.delete(id);
     }
@@ -1045,7 +1289,10 @@
     $("dJa").disabled = true;
     fetch("/api/uebernehmen", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ids: [...dAuswahl], ...dWerte}),
+      body: JSON.stringify({
+        ids:      [...dAuswahl].filter(id => dFehlt.get(id) !== false),
+        ersetzen: [...dAuswahl].filter(id => dFehlt.get(id) === false),
+        ...dWerte}),
     }).then(r => r.json()).then(a => {
       const teile = [];
       if (a.ort) teile.push(`Ort für ${a.ort}`);
@@ -1085,7 +1332,7 @@
         stand = a.stand;
         kurz("In Papierkorb verschoben");
         const n = bilder.findIndex(b => b[0] === id);
-        if (n >= 0) { bilder.splice(n, 1); if (n < i) i--; }
+        if (n >= 0) { bilder.splice(n, 1); if (n < i) i--; ordnungAufbauen(); }
         // im Edit-Modus zeitlich weiter, sonst durch die Playlist
         if (bearbeiten) {
           if (aktuellesFoto && aktuellesFoto.id === id) editBlaettern(+1);
@@ -1096,8 +1343,10 @@
           elMeldung.textContent = "Keine Bilder mehr in dieser Auswahl.";
           return;
         }
-        i = (i - 1 + bilder.length) % bilder.length;   // weiter() zählt hoch
-        weiter(+1);
+        // An derselben Stelle bleiben: dort steht jetzt das Bild,
+        // das nachgerückt ist.
+        i = (i - 1 + bilder.length) % bilder.length;
+        automatisch();
       })
       .catch(() => kurz("Löschen fehlgeschlagen"));
   }
@@ -1177,7 +1426,7 @@
     } else {
       castBildId = null;
       kurz("Eigene Anzeige");
-      if (bilder.length && !bearbeiten) weiter(+1);
+      if (bilder.length && !bearbeiten) automatisch();
     }
   }
 
@@ -1185,9 +1434,11 @@
     if (b[0] === castBildId) return;
     castBildId = b[0];
     clearTimeout(uhr);
-    // Den eigenen Zeiger mitziehen, damit Bearbeiten und Löschen passen
+    // Den eigenen Zeiger mitziehen, damit Bearbeiten und Löschen passen -
+    // und in den Verlauf, damit „zurück" nach dem Abkoppeln genau die
+    // Bilder zeigt, die am Fernseher zu sehen waren.
     const k = bilder.findIndex(x => x[0] === b[0]);
-    if (k >= 0) i = k;
+    if (k >= 0) { i = k; merken(k, +1); }
     zeige([b[0], b[1] || "", b[2] || "", 0]);
   }
 
@@ -1380,8 +1631,8 @@
 
   // -------------------------------------------------------------- Bedienung
 
-  $("kZurueck").onclick = ev => { ev.stopPropagation(); weiter(-1); };
-  $("kVor").onclick     = ev => { ev.stopPropagation(); weiter(+1); };
+  $("kZurueck").onclick = ev => { ev.stopPropagation(); blaettern(-1); };
+  $("kVor").onclick     = ev => { ev.stopPropagation(); blaettern(+1); };
   $("kPause").onclick   = ev => { ev.stopPropagation(); pauseUmschalten(); };
   $("kEdit").onclick    = ev => { ev.stopPropagation(); bearbeitenUmschalten(true); };
   $("kVoll").onclick    = ev => {
@@ -1397,9 +1648,11 @@
 
   document.addEventListener("keydown", ev => {
     if (!$("schleier").hidden) {
-      // Im Dialog blättern die Pfeiltasten durch die 50er-Fenster, nicht
-      // durch die Slideshow dahinter.
+      // Im Dialog blättern die Pfeiltasten durch die 20er-Fenster, nicht
+      // durch die Slideshow dahinter.  Tippt man gerade im Ortsfeld,
+      // gehören die Pfeiltasten dem Cursor.
       if (ev.key === "Escape") erledige();
+      else if (tippt()) return;
       else if (ev.key === "ArrowLeft")  $("dZurueck").click();
       else if (ev.key === "ArrowRight") $("dVor").click();
       return;
@@ -1412,28 +1665,13 @@
     if (ev.key === " ")               { ev.preventDefault(); pauseUmschalten(); }
     else if (ev.key === "Delete")     { ev.preventDefault(); loesche(sichtbaresBild()); }
     // im Edit-Modus zeitlich blättern, sonst durch die Playlist
-    else if (ev.key === "ArrowRight") bearbeiten ? editBlaettern(+1) : weiter(+1);
-    else if (ev.key === "ArrowLeft")  bearbeiten ? editBlaettern(-1) : weiter(-1);
+    else if (ev.key === "ArrowRight") bearbeiten ? editBlaettern(+1) : blaettern(+1);
+    else if (ev.key === "ArrowLeft")  bearbeiten ? editBlaettern(-1) : blaettern(-1);
     else if (ev.key === "Escape")     bearbeitenUmschalten(false);
     else if (ev.key.toLowerCase() === "e") bearbeitenUmschalten();
     else if (ev.key.toLowerCase() === "f") {
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen().catch(() => {});
-    }
-  });
-
-  $("fOrt").addEventListener("keydown", ev => {
-    const eintraege = [...elVor.children];
-    if (elVor.hidden || !eintraege.length) return;
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      ev.preventDefault();
-      markiert += ev.key === "ArrowDown" ? 1 : -1;
-      markiert = (markiert + eintraege.length) % eintraege.length;
-      eintraege.forEach((e, n) => e.classList.toggle("aktiv", n === markiert));
-    } else if (ev.key === "Enter" && markiert >= 0) {
-      ev.preventDefault(); eintraege[markiert].click();
-    } else if (ev.key === "Escape") {
-      ev.stopPropagation(); versteckeVorschlaege();
     }
   });
 
@@ -1462,7 +1700,7 @@
     const dx = ev.changedTouches[0].clientX - tipX;
     const dy = ev.changedTouches[0].clientY - tipY;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      weiter(dx < 0 ? +1 : -1);
+      blaettern(dx < 0 ? +1 : -1);
     }
     tipX = null;
   }, {passive: true});
