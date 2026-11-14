@@ -2640,6 +2640,12 @@ AUSSCHALT_AKTION = "org.freedesktop.login1.halt"
 AUSSCHALT_FRIST = 2.0           # Sekunden zwischen Antwort und Halt
 STECKDOSE = BASE / "steckdose.sh"
 
+# Wer in den letzten so vielen Minuten Tastatur oder Maus angefasst hat,
+# arbeitet noch - dann wird nicht angehalten.  Die angemeldete Sitzung
+# allein sagt nichts: der Rechner meldet sich per Autologin selbst an, die
+# Sitzung ist also immer da, auch wenn niemand davor sitzt.
+ARBEIT_RUHE_MIN = 15
+
 
 def steckdose_erreichbar():
     """Antwortet die Steckdose, die uns gleich den Strom nehmen soll?
@@ -2725,6 +2731,105 @@ def ausschalten_erlaubt():
     return False, (fertig.stderr or fertig.stdout).strip() or "polkit sagt nein"
 
 
+def _sitzungen():
+    """Angemeldete Benutzersitzungen als Liste von dicts (loginctl)."""
+    try:
+        liste = subprocess.run(["loginctl", "list-sessions", "--no-legend"],
+                               capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    ergebnis = []
+    for zeile in liste.stdout.splitlines():
+        teile = zeile.split()
+        if not teile:
+            continue
+        try:
+            fertig = subprocess.run(
+                ["loginctl", "show-session", teile[0], "-p", "Name",
+                 "-p", "User", "-p", "Class", "-p", "Type", "-p", "Remote",
+                 "-p", "RemoteHost", "-p", "State", "-p", "TTY"],
+                capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        werte = dict(z.split("=", 1) for z in fertig.stdout.splitlines()
+                     if "=" in z)
+        if werte.get("Class") == "user" and werte.get("State") != "closing":
+            ergebnis.append(werte)
+    return ergebnis
+
+
+def _leerlauf_grafisch(uid):
+    """Sekunden seit der letzten Eingabe am Desktop, None = unbekannt.
+
+    Gefragt wird die Shell selbst (Mutter), nicht logind: dessen IdleHint
+    setzt GNOME erst nach der Bildschirmsperr-Frist, und die steht hier auf
+    "nie" - IdleHint waere damit fuer immer "nicht im Leerlauf".
+    """
+    umgebung = dict(os.environ,
+                    DBUS_SESSION_BUS_ADDRESS=f"unix:path=/run/user/{uid}/bus")
+    try:
+        fertig = subprocess.run(
+            ["gdbus", "call", "--session",
+             "--dest", "org.gnome.Mutter.IdleMonitor",
+             "--object-path", "/org/gnome/Mutter/IdleMonitor/Core",
+             "--method", "org.gnome.Mutter.IdleMonitor.GetIdletime"],
+            capture_output=True, text=True, timeout=10, env=umgebung)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    treffer = re.search(r"(\d+)", fertig.stdout)
+    if fertig.returncode != 0 or not treffer:
+        return None
+    return int(treffer.group(1)) / 1000
+
+
+def _leerlauf_terminal(tty):
+    """Sekunden seit der letzten Eingabe am Terminal (wie `w`)."""
+    if not tty:
+        return None
+    try:
+        return max(0.0, time.time() - os.stat(f"/dev/{tty}").st_atime)
+    except OSError:
+        return None
+
+
+def jemand_arbeitet():
+    """Sitzt gerade jemand am Rechner?  -> Beschreibung oder None.
+
+    Gezaehlt wird die letzte Eingabe, nicht die Anmeldung (siehe
+    ARBEIT_RUHE_MIN).  Laesst sich der Leerlauf nicht bestimmen, wird
+    nicht gesperrt, nur protokolliert: sonst bliebe der Rechner bei einer
+    gestoerten Abfrage jeden Abend an, und niemand saehe warum.
+    """
+    grenze = ARBEIT_RUHE_MIN * 60
+    for s in _sitzungen():
+        wer = s.get("Name", "?")
+        if s.get("Type") in ("wayland", "x11"):
+            ruhe, wo = _leerlauf_grafisch(s.get("User", "")), "am Desktop"
+        else:
+            ruhe = _leerlauf_terminal(s.get("TTY"))
+            wo = (f"per SSH von {s['RemoteHost']}" if s.get("RemoteHost")
+                  else f"an {s.get('TTY') or 'einem Terminal'}")
+        if ruhe is None:
+            app.logger.warning("Leerlauf von %s %s nicht feststellbar.",
+                               wer, wo)
+            continue
+        if ruhe < grenze:
+            return f"{wer} arbeitet {wo} (letzte Eingabe vor " \
+                   f"{int(ruhe // 60)} min)"
+    return None
+
+
+@app.route("/api/arbeit")
+def api_arbeit():
+    """Wuerde /api/ausschalten gerade wegen Arbeit am Rechner ablehnen?
+
+    Nur Lesen.  Zum Nachsehen, ohne dass ein Fehlgriff den Rechner anhaelt.
+    """
+    arbeit = jemand_arbeitet()
+    return jsonify({"arbeit": bool(arbeit), "meldung": arbeit or "",
+                    "ruhe_min": ARBEIT_RUHE_MIN})
+
+
 def _ausschalten_gleich():
     """Laeuft im eigenen Faden, kurz nachdem die Antwort raus ist."""
     try:
@@ -2751,7 +2856,8 @@ def api_ausschalten():
     im Voraus laedt.
 
     Waehrend eines Imports wird abgelehnt - ein halb entpackter Takeout
-    kostet beim naechsten Lauf Stunden.  Mit {"trotzdem": true} bzw.
+    kostet beim naechsten Lauf Stunden.  Ebenso, solange jemand am Rechner
+    arbeitet (jemand_arbeitet()).  Mit {"trotzdem": true} bzw.
     ?trotzdem=1 geht es dennoch.
     """
     daten = request.get_json(silent=True) or {}
@@ -2760,6 +2866,15 @@ def api_ausschalten():
     if IMPORT["aktiv"] and not trotzdem:
         return jsonify({"fehler": "Es läuft ein Import.",
                         "import": True}), 409
+
+    # Kein Halt unter den Fingern weg: wer gerade arbeitet, verloere alles
+    # Ungespeicherte - und die Kueche weiss davon nichts.
+    arbeit = None if trotzdem else jemand_arbeitet()
+    if arbeit:
+        app.logger.info("Ausschalten abgelehnt: %s.", arbeit)
+        return jsonify({"fehler": f"{arbeit}.",
+                        "hinweis": "Mit ?trotzdem=1 geht es dennoch.",
+                        "arbeit": True}), 409
 
     erlaubt, grund = ausschalten_erlaubt()
     if not erlaubt:
