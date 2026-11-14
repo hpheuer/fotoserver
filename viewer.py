@@ -67,15 +67,11 @@ DAUER_MIN, DAUER_MAX = 2, 300
 MODI = ("zufall", "chrono", "neueste")
 
 # Die Mischung fuer modus="zufall" bleibt, solange der Dienst laeuft.
-# Frueher wurde bei jedem Abruf neu gemischt - und die Slideshow holt die
-# Playlist alle 30 Sekunden nach, sobald sich der Stand geaendert hat.
-# Danach zeigte "zurueck" Bilder, die nie zu sehen waren, und der Fernseher
-# fing zusaetzlich wieder bei Bild 1 an.
-#
-# Gemischt wird deshalb ueber einen Sortierschluessel je Bild, nicht mit
-# shuffle(): faellt ein Bild weg oder kommt eines dazu, bleiben alle
-# anderen stehen, wo sie waren.  shuffle() mit fester Saat wuerde bei
-# geaenderter Laenge eine voellig andere Reihenfolge ergeben.
+# Gemischt wird ueber einen Sortierschluessel je Bild, nicht mit shuffle():
+# faellt ein Bild weg oder kommt eines dazu, bleiben die anderen stehen.
+# shuffle() mit fester Saat wuerde bei geaenderter Laenge alles verschieben.
+# Die Slideshow holt die Playlist nach, sobald sich der Stand aendert -
+# Reihenfolge und das Bild auf dem Fernseher muessen das ueberstehen.
 MISCHUNG = random.randrange(1 << 30)
 
 
@@ -952,6 +948,7 @@ _orte_liste = None
 _orte_namen = None          # kleingeschrieben -> [Eintraege]
 _laender_namen = None       # kleingeschrieben -> (Name, cc)
 _regionen_namen = None      # kleingeschrieben -> (Name, cc, Land)
+_ort_region = None          # (name_klein, cc) -> eine Region, "" oder None
 _land_gewicht = None        # cc -> Anzahl eigener Fotos
 _vergeben = None            # kleingeschrieben -> (Name, cc, Land, Anzahl)
 _orte_sperre = threading.Lock()
@@ -1020,11 +1017,12 @@ def vergebene_orte():
 
 def orte_laden():
     """orte.tsv einmalig in den Speicher, fuer Ortssuche und Albumvorschlag."""
-    global _orte_liste, _orte_namen, _laender_namen, _regionen_namen
+    global _orte_liste, _orte_namen, _laender_namen, _regionen_namen, _ort_region
     with _orte_sperre:
         if _orte_liste is not None:
             return _orte_liste
         liste, namen, laender, regionen = [], {}, {}, {}
+        gebiete = {}            # (name_klein, cc) -> Menge der Regionen
         # orte-ergaenzung.tsv traegt nach, was cities1000 fehlt (kleinere
         # deutsche Gemeinden) - siehe geocode.py --gemeinden.
         for pfad in (BASE / "geo" / "orte.tsv",
@@ -1045,6 +1043,7 @@ def orte_laden():
                         region = t[6] if len(t) > 6 else ""
                         eintrag = (name, cc, land, pop, region)
                         liste.append(eintrag)
+                        gebiete.setdefault((name.lower(), cc), set()).add(region)
                         namen.setdefault(name.lower(), []).append(eintrag)
                         if region:
                             regionen.setdefault(
@@ -1059,8 +1058,18 @@ def orte_laden():
                                     laender[lk] = (land_name(cc, land), cc)
             except OSError:
                 app.logger.warning("%s nicht lesbar", pfad.name)
+        eindeutig = {}
+        for schluessel, regs in gebiete.items():
+            genannt = {r for r in regs if r}
+            if len(genannt) == 1:
+                eindeutig[schluessel] = next(iter(genannt))
+            elif not genannt:
+                eindeutig[schluessel] = ""
+            else:
+                eindeutig[schluessel] = None
         _orte_liste, _orte_namen = liste, namen
         _laender_namen, _regionen_namen = laender, regionen
+        _ort_region = eindeutig
         return _orte_liste
 
 
@@ -1112,20 +1121,51 @@ def api_ortsuche():
         vorgabe = 1 if ORTS_VORGABEN.get(k) == cc else 0
         treffer.append((rang, -vorgabe, -gewicht.get(cc, 0), -pop,
                         name, cc, land, region, "Ort", 0))
-    # Land und Region haben nur fuenf Felder - auf dieselbe Form bringen
+    # Land und Region sind 7-Tupel und werden auf den 10-teiligen
+    # Sortierschluessel gebracht, den Orte schon haben.
     treffer = [t if len(t) == 10 else (t[0], 0, 0, t[1], *t[2:], 0)
                for t in treffer]
     treffer.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
 
-    raus, gesehen = [], set()
+    # Hoechstens drei schon vergebene Namen.  Sie stehen ganz vorn;
+    # ohne Deckel fuellt ein kurzes Praefix die zwoelf Plaetze, und ein
+    # neuer Ort aus dem Gazetteer ist nicht mehr erreichbar.
+    raus, gesehen, gedeckt = [], set(), set()
+    n_vergeben = 0
     for *_, name, cc, land, region, art, anzahl in treffer:
-        # Region bleibt aus dem Schluessel, sobald der Ort schon vergeben
-        # ist: sonst stuende Stutensee zweimal da, einmal mit Landkreis
-        # und einmal ohne.  Der vergebene Eintrag kommt zuerst und gewinnt.
-        schluessel = (name.lower(), cc, "" if anzahl else region, art)
-        if schluessel in gesehen or (name.lower(), cc, "", art) in gesehen:
-            continue
-        gesehen.add(schluessel)
+        klein = name.lower()
+        if art == "Ort" and anzahl:
+            if n_vergeben >= 3:
+                continue
+            # Eine einzige Region im Land: der vergebene Name IST dieser
+            # Ort (Lindau mit und ohne Landkreis).  Mehrere Regionen
+            # bleiben eigene Treffer - Oregon in Missouri ist nicht
+            # Oregon in Illinois.
+            eindeutig = _ort_region.get((klein, cc), "")
+            if eindeutig:
+                region = eindeutig
+            schluessel = (klein, cc, region, art)
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+            if eindeutig is not None:
+                gedeckt.add((klein, cc))
+            n_vergeben += 1
+        elif art == "Ort":
+            eindeutig = _ort_region.get((klein, cc))
+            if (klein, cc) in gedeckt and eindeutig is not None:
+                continue
+            if eindeutig and not region:
+                region = eindeutig
+            schluessel = (klein, cc, region, art)
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+        else:
+            schluessel = (klein, cc, region, art)
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
         raus.append({"ort": name, "cc": cc, "land": land_name(cc, land),
                      "region": region, "art": art, "vergeben": anzahl})
         if len(raus) >= 12:
@@ -1973,10 +2013,9 @@ def _cast_lauf():
                                   e["ohne_album"])
                 chrono, rang, plaetze = _ordnung(bilder)
                 marke = jetzt
-                # Dort weitermachen, wo der Fernseher steht.  Frueher stand
-                # hier n = 0: jede Aenderung - ein geloeschtes Bild, ein
-                # nachgetragener Ort - warf die Ausgabe zurueck an den
-                # Anfang, und "zurueck" zeigte danach Fremdes.
+                # Auf dem gezeigten Bild bleiben.  Der Index folgt der
+                # Bild-ID: ein geloeschtes Bild oder ein nachgetragener Ort
+                # darf die Ausgabe nicht an den Anfang werfen.
                 n = next((k for k, b in enumerate(bilder) if b[0] == lief),
                          n % len(bilder) if bilder else 0)
                 with _cast_sperre:
@@ -2669,8 +2708,8 @@ def steckdose_erreichbar():
     if code is None:
         return True, ""                     # kein Skript, alter Weg
     if code == 2:
-        # Keine Adresse eingetragen.  Dann besorgt den Strom jemand anders
-        # (frueher HomeAssistant) - das ist eine Entscheidung, keine Panne.
+        # Keine Adresse eingetragen.  Dann besorgt den Strom jemand anders.
+        # Das ist eine Entscheidung, keine Panne.
         return True, ""
     return False, text or "keine Antwort"
 
