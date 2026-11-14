@@ -492,11 +492,14 @@
 
   // -------------------------------------------------------------- Playlist
 
-  function ladePlaylist(erstesMal) {
+  function ladePlaylist() {
     return fetch("/api/playlist?" + abfrage.toString())
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => {
-        const lief = bilder[i] ? bilder[i][0] : null;
+        // i < 0 darf bilder[i] nicht lesen: in JavaScript ist das das
+        // letzte Element, nicht "keins".
+        const hatteBild = i >= 0 && !!bilder[i];
+        const lief = hatteBild ? bilder[i][0] : null;
         bilder = d.bilder;
         ordnungAufbauen();
         dauer = d.dauer * 1000;
@@ -506,6 +509,7 @@
         if (d.info_skala)   setzeSkala("info", d.info_skala);
         if (d.leiste_skala) setzeSkala("leiste", d.leiste_skala);
         if (!bilder.length) {
+          i = -1;
           elMeldung.hidden = false;
           elMeldung.textContent = d.nur === "luecken"
             ? "Keine Lücken mehr — bei allen Bildern stehen Datum und Ort."
@@ -513,7 +517,7 @@
           return;
         }
         elMeldung.hidden = true;
-        if (erstesMal) {
+        if (!hatteBild) {
           i = 0;
           // Beim Einstieg über ?bearbeiten=1 ist der Edit-Modus schon an,
           // bevor die Playlist da ist - dann gleich dort weitermachen.
@@ -527,7 +531,7 @@
           // Beim Nachladen auf dem gezeigten Bild stehenbleiben.  Der
           // Zeiger allein taugt dafür nicht: fällt ein Bild weg, rutscht
           // alles dahinter um einen Platz.
-          const k = lief === null ? -1 : platzVon(lief);
+          const k = platzVon(lief);
           i = k >= 0 ? k : Math.min(i, bilder.length - 1);
         }
       });
@@ -616,6 +620,9 @@
       return;
     }
     if (!bilder.length) return;
+    // Nach einer leeren Auswahl ist i noch -1.  zeitNachbar findet dazu
+    // keinen Rang, und die Taste bliebe stumm.
+    if (i < 0 || !bilder[i]) { zeigePlatz(0, richtung, false); return; }
     const ausVerlauf = verlaufSchritt(richtung);
     if (ausVerlauf >= 0) { zeigePlatz(ausVerlauf, richtung, true); return; }
     const k = zeitNachbar(i, richtung);
@@ -629,12 +636,13 @@
     clearTimeout(uhr);
     if (castFolgen && !bearbeiten) return;
     if (!bilder.length) return;
+    if (i < 0 || !bilder[i]) { zeigePlatz(0, +1, false); return; }
     zeigePlatz((i + 1) % bilder.length, +1, false);
   }
 
   // Erst hier, damit beim Eintreffen der Playlist alles steht, was sie
   // braucht - Verlauf, Ordnung und das Blättern.
-  ladePlaylist(true).catch(e =>
+  ladePlaylist().catch(e =>
     { elMeldung.textContent = "Playlist nicht ladbar (" + e + ")"; });
 
   function zeige(eintrag) {
@@ -715,7 +723,7 @@
   setInterval(() => {
     if (eigeneWahl || bearbeiten) return;
     fetch("/api/stand").then(r => r.json()).then(d => {
-      if (stand !== null && d.stand !== stand) ladePlaylist(false);
+      if (stand !== null && d.stand !== stand) ladePlaylist();
     }).catch(() => {});
   }, 30000);
 
@@ -744,6 +752,7 @@
       if (castFolgen && cast && cast.bild) {
         zeigeZumBearbeiten([...cast.bild, 0]);
       } else if (bilder.length) {
+        if (i < 0 || !bilder[i]) i = 0;
         zeigeZumBearbeiten(bilder[i]);
       }
     } else {
@@ -1007,7 +1016,7 @@
       startDatum = dNeu; startOrt = oNeu;
       const eintrag = bilder.find(b => b[0] === foto.id);
       if (eintrag) { eintrag[1] = a.datum; eintrag[2] = a.ort; eintrag[3] = 1; }
-      if (bilder[i] && bilder[i][0] === foto.id) setzeInfo(a.datum, a.ort);
+      if (i >= 0 && bilder[i] && bilder[i][0] === foto.id) setzeInfo(a.datum, a.ort);
 
       // Nur beim Nachtragen fragen, nicht beim Berichtigen: wer einen
       // schon vorhandenen Ort korrigiert, will nicht 20 Nachbarn ändern.
@@ -1303,7 +1312,7 @@
       const m = $("bMelder");
       m.textContent = text; m.className = "melder gut";
       kurz(text);
-      ladePlaylist(false);
+      ladePlaylist();
       dAuswahl.clear();
       $("dNein").textContent = "Fertig";
       holeUmfeld(dStelle.richtung, dStelle.anker, "auffrischen");
@@ -1339,6 +1348,7 @@
           return;
         }
         if (!bilder.length) {
+          i = -1;
           elMeldung.hidden = false;
           elMeldung.textContent = "Keine Bilder mehr in dieser Auswahl.";
           return;
@@ -1356,7 +1366,7 @@
   function sichtbaresBild() {
     if (bearbeiten) return aktuellesFoto ? aktuellesFoto.id : null;
     if (castFolgen && castBildId) return castBildId;
-    return bilder[i] ? bilder[i][0] : null;
+    return (i >= 0 && bilder[i]) ? bilder[i][0] : null;
   }
 
   $("bLoeschen").onclick = () => loesche(sichtbaresBild());
