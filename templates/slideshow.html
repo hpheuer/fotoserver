@@ -496,8 +496,9 @@
     return fetch("/api/playlist?" + abfrage.toString())
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => {
-        // i < 0 darf bilder[i] nicht lesen: in JavaScript ist das das
-        // letzte Element, nicht "keins".
+        // i < 0 heißt "kein Bild".  bilder[-1] ist in JavaScript schlicht
+        // undefined (nicht das letzte Element wie in Python); geprüft wird
+        // trotzdem ausdrücklich, damit die Absicht lesbar bleibt.
         const hatteBild = i >= 0 && !!bilder[i];
         const lief = hatteBild ? bilder[i][0] : null;
         bilder = d.bilder;
