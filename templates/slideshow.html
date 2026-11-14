@@ -492,15 +492,19 @@
 
   // -------------------------------------------------------------- Playlist
 
+  // Der Eintrag unter dem Zeiger, oder null.  i = -1 heißt "kein Bild"
+  // (leere Auswahl); bilder[-1] wäre in JavaScript zwar nur undefined,
+  // aber so steht die Absicht an einer Stelle statt an fünf.
+  function aktuell() {
+    return i >= 0 && i < bilder.length ? bilder[i] : null;
+  }
+
   function ladePlaylist() {
     return fetch("/api/playlist?" + abfrage.toString())
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => {
-        // i < 0 heißt "kein Bild".  bilder[-1] ist in JavaScript schlicht
-        // undefined (nicht das letzte Element wie in Python); geprüft wird
-        // trotzdem ausdrücklich, damit die Absicht lesbar bleibt.
-        const hatteBild = i >= 0 && !!bilder[i];
-        const lief = hatteBild ? bilder[i][0] : null;
+        const vorher = aktuell();
+        const lief = vorher ? vorher[0] : null;
         bilder = d.bilder;
         ordnungAufbauen();
         dauer = d.dauer * 1000;
@@ -518,16 +522,25 @@
           return;
         }
         elMeldung.hidden = true;
-        if (!hatteBild) {
+        if (!vorher) {
+          // Kein Bild im Zeiger: erster Start, oder die Auswahl war leer
+          // und füllt sich wieder.  Angezeigt wird nur, was sonst niemand
+          // zeigt - Werkbank und Fernsehbild bleiben, wo sie sind.
           i = 0;
-          // Beim Einstieg über ?bearbeiten=1 ist der Edit-Modus schon an,
-          // bevor die Playlist da ist - dann gleich dort weitermachen.
-          if (bearbeiten) zeigeZumBearbeiten(bilder[0]);
-          // Läuft schon ein Cast, darf das bloße Öffnen der Seite den
-          // Fernseher nicht weiterschalten - nur still etwas anzeigen,
-          // bis castHolen das richtige Bild nachreicht.
-          else if (castFolgen) zeige(bilder[0]);
-          else { merken(0, +1); zeige(bilder[0]); vorladen(0); }
+          if (bearbeiten) {
+            // Beim Einstieg über ?bearbeiten=1 ist der Edit-Modus schon
+            // an, bevor die Playlist da ist - dann gleich dort weiter.
+            // Steht schon ein Bild in der Werkbank, bleibt es stehen.
+            if (aktuellesFoto) i = Math.max(0, platzVon(aktuellesFoto.id));
+            else zeigeZumBearbeiten(bilder[0]);
+          } else if (castFolgen) {
+            // Das bloße Öffnen der Seite darf den Fernseher nicht
+            // weiterschalten.  Hat castHolen schon geantwortet, steht das
+            // Fernsehbild bereits da und darf nicht überdeckt werden;
+            // sonst still etwas zeigen, bis es nachgereicht wird.
+            if (castBildId !== null) i = Math.max(0, platzVon(castBildId));
+            else zeige(bilder[0]);
+          } else { merken(0, +1); zeige(bilder[0]); vorladen(0); }
         } else {
           // Beim Nachladen auf dem gezeigten Bild stehenbleiben.  Der
           // Zeiger allein taugt dafür nicht: fällt ein Bild weg, rutscht
@@ -623,7 +636,7 @@
     if (!bilder.length) return;
     // Nach einer leeren Auswahl ist i noch -1.  zeitNachbar findet dazu
     // keinen Rang, und die Taste bliebe stumm.
-    if (i < 0 || !bilder[i]) { zeigePlatz(0, richtung, false); return; }
+    if (!aktuell()) { zeigePlatz(0, richtung, false); return; }
     const ausVerlauf = verlaufSchritt(richtung);
     if (ausVerlauf >= 0) { zeigePlatz(ausVerlauf, richtung, true); return; }
     const k = zeitNachbar(i, richtung);
@@ -637,14 +650,23 @@
     clearTimeout(uhr);
     if (castFolgen && !bearbeiten) return;
     if (!bilder.length) return;
-    if (i < 0 || !bilder[i]) { zeigePlatz(0, +1, false); return; }
+    if (!aktuell()) { zeigePlatz(0, +1, false); return; }
     zeigePlatz((i + 1) % bilder.length, +1, false);
   }
 
   // Erst hier, damit beim Eintreffen der Playlist alles steht, was sie
   // braucht - Verlauf, Ordnung und das Blättern.
-  ladePlaylist().catch(e =>
-    { elMeldung.textContent = "Playlist nicht ladbar (" + e + ")"; });
+  // Scheitert der erste Abruf - das Tablet ist schneller wach als der
+  // Dienst -, wird nachgefasst.  Der 30-s-Abgleich hilft hier nicht: er
+  // vergleicht nur mit einem Stand, den es dann noch gar nicht gibt.
+  function ersteLadung() {
+    ladePlaylist().catch(e => {
+      elMeldung.hidden = false;
+      elMeldung.textContent = "Playlist nicht ladbar (" + e + ")";
+      setTimeout(ersteLadung, 5000);
+    });
+  }
+  ersteLadung();
 
   function zeige(eintrag) {
     const [id, datum, ort] = eintrag;
@@ -753,7 +775,7 @@
       if (castFolgen && cast && cast.bild) {
         zeigeZumBearbeiten([...cast.bild, 0]);
       } else if (bilder.length) {
-        if (i < 0 || !bilder[i]) i = 0;
+        if (!aktuell()) i = 0;
         zeigeZumBearbeiten(bilder[i]);
       }
     } else {
@@ -1017,7 +1039,7 @@
       startDatum = dNeu; startOrt = oNeu;
       const eintrag = bilder.find(b => b[0] === foto.id);
       if (eintrag) { eintrag[1] = a.datum; eintrag[2] = a.ort; eintrag[3] = 1; }
-      if (i >= 0 && bilder[i] && bilder[i][0] === foto.id) setzeInfo(a.datum, a.ort);
+      if (aktuell() && aktuell()[0] === foto.id) setzeInfo(a.datum, a.ort);
 
       // Nur beim Nachtragen fragen, nicht beim Berichtigen: wer einen
       // schon vorhandenen Ort korrigiert, will nicht 20 Nachbarn ändern.
@@ -1367,7 +1389,7 @@
   function sichtbaresBild() {
     if (bearbeiten) return aktuellesFoto ? aktuellesFoto.id : null;
     if (castFolgen && castBildId) return castBildId;
-    return (i >= 0 && bilder[i]) ? bilder[i][0] : null;
+    return aktuell() ? aktuell()[0] : null;
   }
 
   $("bLoeschen").onclick = () => loesche(sichtbaresBild());
