@@ -570,9 +570,8 @@ def run_import(source, db_path, limit=None):
 
 # taken_at ist nicht immer das Aufnahmedatum.  display_date und
 # date_confidence sagen, was davon angezeigt werden darf; sortiert wird im
-# Viewer immer nach display_date.  Bis August 2026 wurden beide Spalten von
-# Hand gesetzt - das fiel bei jedem neuen Takeout erneut an und fehlte in
-# einer frisch angelegten Datenbank ganz.  Jetzt macht es der Import.
+# Viewer immer nach display_date.  Beide Spalten setzt der Import, auch
+# in einer frisch angelegten Datenbank.
 
 # Messenger-Bilder ohne EXIF: UUID-Dateinamen, Laengsseite auf 1600 px
 # gekappt, kein camera_model.  Ihr taken_at ist das Empfangs- und nicht das

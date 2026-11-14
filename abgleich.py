@@ -218,12 +218,10 @@ def stand_lesen():
     abgebrochen wurde, ist halb und wird noch einmal gelesen.
     """
     fertig, gross = {}, {}
-    # Welche Archive wirklich zu Ende gelesen wurden.  Frueher wurde dafuer
-    # geprueft, ob "#fertig\t<name>" irgendwo im Text vorkommt - eine
-    # Zeichenkettensuche, die auch bei einem laengeren Namen anschlaegt
-    # ("photos.zip" steckt in "photos.zip.teil2").  Ein halb gelesenes
-    # Archiv gaelte dann als fertig, und seine ungelesenen Bilder zaehlten
-    # als bei Google geloescht.
+    # "#fertig" gilt nur bei exakt diesem Archivnamen.  Eine
+    # Teilzeichenkette wuerde bei einem laengeren Namen anschlagen
+    # ("photos.zip" steckt in "photos.zip.teil2"): ein halb gelesenes
+    # Archiv gaelte als fertig, seine ungelesenen Bilder als geloescht.
     abgeschlossen = set()
     try:
         text = STAND.read_text(encoding="utf-8")

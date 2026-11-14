@@ -158,11 +158,10 @@ def sammeln(quelle):
     """Mediendateien unter quelle -> ([(pfad, groesse, mtime)], [(pfad, grund)]).
 
     Was sich nicht einsammeln laesst, wird mitgezaehlt und nicht
-    verschluckt.  Frueher fielen ein unlesbares Verzeichnis (os.walk
-    meldet Fehler nur, wenn man danach fragt) und eine Datei, die zwischen
-    Auflisten und Nachsehen verschwindet, stillschweigend heraus - und am
-    Ende stand "Alle Hashes stimmen" ueber einer Bibliothek, von der ein
-    Teil nie angesehen wurde.
+    verschluckt.  os.walk meldet ein unlesbares Verzeichnis nur, wenn man
+    danach fragt, und eine Datei kann zwischen Auflisten und Nachsehen
+    verschwinden.  Beides muss im Befund stehen, sonst hiesse es am Ende
+    "Alle Hashes stimmen", obwohl ein Teil nie angesehen wurde.
     """
     gefunden, unlesbar = [], []
 
