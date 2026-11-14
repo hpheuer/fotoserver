@@ -948,7 +948,6 @@ _orte_liste = None
 _orte_namen = None          # kleingeschrieben -> [Eintraege]
 _laender_namen = None       # kleingeschrieben -> (Name, cc)
 _regionen_namen = None      # kleingeschrieben -> (Name, cc, Land)
-_ort_region = None          # (name_klein, cc) -> eine Region, "" oder None
 _land_gewicht = None        # cc -> Anzahl eigener Fotos
 _vergeben = None            # kleingeschrieben -> (Name, cc, Land, Anzahl)
 _orte_sperre = threading.Lock()
@@ -1017,12 +1016,11 @@ def vergebene_orte():
 
 def orte_laden():
     """orte.tsv einmalig in den Speicher, fuer Ortssuche und Albumvorschlag."""
-    global _orte_liste, _orte_namen, _laender_namen, _regionen_namen, _ort_region
+    global _orte_liste, _orte_namen, _laender_namen, _regionen_namen
     with _orte_sperre:
         if _orte_liste is not None:
             return _orte_liste
         liste, namen, laender, regionen = [], {}, {}, {}
-        gebiete = {}            # (name_klein, cc) -> Menge der Regionen
         # orte-ergaenzung.tsv traegt nach, was cities1000 fehlt (kleinere
         # deutsche Gemeinden) - siehe geocode.py --gemeinden.
         for pfad in (BASE / "geo" / "orte.tsv",
@@ -1043,7 +1041,6 @@ def orte_laden():
                         region = t[6] if len(t) > 6 else ""
                         eintrag = (name, cc, land, pop, region)
                         liste.append(eintrag)
-                        gebiete.setdefault((name.lower(), cc), set()).add(region)
                         namen.setdefault(name.lower(), []).append(eintrag)
                         if region:
                             regionen.setdefault(
@@ -1058,19 +1055,49 @@ def orte_laden():
                                     laender[lk] = (land_name(cc, land), cc)
             except OSError:
                 app.logger.warning("%s nicht lesbar", pfad.name)
-        eindeutig = {}
-        for schluessel, regs in gebiete.items():
-            genannt = {r for r in regs if r}
-            if len(genannt) == 1:
-                eindeutig[schluessel] = next(iter(genannt))
-            elif not genannt:
-                eindeutig[schluessel] = ""
-            else:
-                eindeutig[schluessel] = None
         _orte_liste, _orte_namen = liste, namen
         _laender_namen, _regionen_namen = laender, regionen
-        _ort_region = eindeutig
         return _orte_liste
+
+
+def _einzige_region(klein, cc):
+    """Region eines Ortsnamens im Land: die eine Region, "" wenn keine
+    genannt ist oder der Name im Verzeichnis fehlt, None bei mehreren.
+
+    Gerechnet wird je Aufruf aus _orte_namen statt vorab fuer alle
+    150.000 Namen - gefragt wird nur nach den paar Treffern einer Suche.
+    """
+    genannt = {e[4] for e in _orte_namen.get(klein, ()) if e[1] == cc and e[4]}
+    if len(genannt) > 1:
+        return None
+    return next(iter(genannt), "")
+
+
+def _vergeben_einordnen(klein, name, cc, land):
+    """Vergebenen Namen dem Verzeichnis zuordnen -> (art, cc, land, im_verzeichnis).
+
+    Ein Handeintrag ohne Laenderkuerzel (etwa aus einem Albumklick) bekommt
+    das Land aus dem Verzeichnis, wenn der Name dort eindeutig ist - sonst
+    stuende er neben seinem eigenen Verzeichniseintrag noch einmal da.
+    Laender und Regionen ("Hawaii") laufen als solche, damit sie mit dem
+    Eintrag aus _regionen_namen zusammenfallen.
+    """
+    if not cc:
+        if klein in _laender_namen:
+            land, cc = _laender_namen[klein]
+        elif klein in _regionen_namen:
+            _, cc, land = _regionen_namen[klein]
+        else:
+            laender = {(e[1], e[2]) for e in _orte_namen.get(klein, ())}
+            if len(laender) == 1:
+                cc, land = next(iter(laender))
+    if klein in _laender_namen and _laender_namen[klein][1] == cc:
+        return "Land", cc, land, True
+    if klein in _regionen_namen and _regionen_namen[klein][1] == cc:
+        return "Region", cc, land, True
+    im = (any(e[1] == cc for e in _orte_namen.get(klein, ()))
+          and _einzige_region(klein, cc) is not None)
+    return "Ort", cc, land, im
 
 
 @app.route("/api/ortsuche")
@@ -1105,11 +1132,26 @@ def api_ortsuche():
         treffer.append((rang, 0, region, cc, land, "", "Region"))
     # Was hier schon vergeben ist, steht vor allem anderen: beim naechsten
     # Bild desselben Ausflugs ist fast immer wieder derselbe Ort gemeint.
+    # Hoechstens drei davon ganz vorn - ohne Deckel fuellt ein kurzes
+    # Praefix die zwoelf Plaetze, und ein neuer Ort aus dem Verzeichnis
+    # ist nicht mehr erreichbar.  Die uebrigen fallen nicht weg: steht der
+    # Name im Verzeichnis, traegt dessen Eintrag die Anzahl; freie Eingaben
+    # ("Ferienhaus am See") ruecken hinter die Treffer am Wortanfang.
+    vergeben = []
     for k, (name, cc, land, anzahl) in vergebene_orte().items():
         rang = -2 if k.startswith(q) else (2.5 if q in k else None)
-        if rang is None:
-            continue
-        treffer.append((rang, 0, -anzahl, 0, name, cc, land, "", "Ort", anzahl))
+        if rang is not None:
+            vergeben.append((rang, -anzahl, k, name, cc, land, anzahl))
+    vergeben.sort()
+    anzahl_dazu = {}            # (klein, cc, art) -> Anzahl, fuer Verzeichnistreffer
+    for n, (rang, _, k, name, cc, land, anzahl) in enumerate(vergeben):
+        art, cc, land, im_verzeichnis = _vergeben_einordnen(k, name, cc, land)
+        if n >= 3:
+            if im_verzeichnis:
+                anzahl_dazu.setdefault((k, cc, art), anzahl)
+                continue
+            rang = 1.5 if rang < 0 else 2.6
+        treffer.append((rang, 0, -anzahl, 0, name, cc, land, "", art, anzahl))
     # Bei Orten zaehlt, wo tatsaechlich fotografiert wurde - sonst stuende
     # Interlaken/Kalifornien (7321 Einwohner) vor Interlaken/Schweiz (5067).
     gewicht = land_gewicht()
@@ -1127,45 +1169,24 @@ def api_ortsuche():
                for t in treffer]
     treffer.sort(key=lambda t: (t[0], t[1], t[2], t[3], t[4]))
 
-    # Hoechstens drei schon vergebene Namen.  Sie stehen ganz vorn;
-    # ohne Deckel fuellt ein kurzes Praefix die zwoelf Plaetze, und ein
-    # neuer Ort aus dem Gazetteer ist nicht mehr erreichbar.
-    raus, gesehen, gedeckt = [], set(), set()
-    n_vergeben = 0
+    # Ein Schluessel fuer alle Arten.  Bei Orten mit nur einer Region im
+    # Land gilt diese Region fuer jeden Eintrag des Namens: dann ist der
+    # vergebene Name derselbe Ort wie der Verzeichniseintrag (Lindau mit
+    # und ohne Landkreis).  Mehrere Regionen bleiben eigene Treffer -
+    # Oregon in Missouri ist nicht Oregon in Illinois.
+    raus, gesehen = [], set()
     for *_, name, cc, land, region, art, anzahl in treffer:
         klein = name.lower()
-        if art == "Ort" and anzahl:
-            if n_vergeben >= 3:
-                continue
-            # Eine einzige Region im Land: der vergebene Name IST dieser
-            # Ort (Lindau mit und ohne Landkreis).  Mehrere Regionen
-            # bleiben eigene Treffer - Oregon in Missouri ist nicht
-            # Oregon in Illinois.
-            eindeutig = _ort_region.get((klein, cc), "")
-            if eindeutig:
-                region = eindeutig
-            schluessel = (klein, cc, region, art)
-            if schluessel in gesehen:
-                continue
-            gesehen.add(schluessel)
-            if eindeutig is not None:
-                gedeckt.add((klein, cc))
-            n_vergeben += 1
-        elif art == "Ort":
-            eindeutig = _ort_region.get((klein, cc))
-            if (klein, cc) in gedeckt and eindeutig is not None:
-                continue
-            if eindeutig and not region:
-                region = eindeutig
-            schluessel = (klein, cc, region, art)
-            if schluessel in gesehen:
-                continue
-            gesehen.add(schluessel)
-        else:
-            schluessel = (klein, cc, region, art)
-            if schluessel in gesehen:
-                continue
-            gesehen.add(schluessel)
+        if art == "Ort":
+            einzig = _einzige_region(klein, cc)
+            if einzig is not None:
+                region = einzig
+        schluessel = (klein, cc, region, art)
+        if schluessel in gesehen:
+            continue
+        gesehen.add(schluessel)
+        if not anzahl:
+            anzahl = anzahl_dazu.get((klein, cc, art), 0)
         raus.append({"ort": name, "cc": cc, "land": land_name(cc, land),
                      "region": region, "art": art, "vergeben": anzahl})
         if len(raus) >= 12:
