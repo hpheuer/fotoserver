@@ -2836,7 +2836,10 @@ def _leerlauf_grafisch(uid):
             capture_output=True, text=True, timeout=10, env=umgebung)
     except (OSError, subprocess.SubprocessError):
         return None
-    treffer = re.search(r"(\d+)", fertig.stdout)
+    # Antwort lautet "(uint64 35865207,)" - die Zahl NACH dem Typnamen
+    # nehmen, sonst greift die Suche die "64" aus "uint64" (= 64 ms
+    # Leerlauf, und das Ausschalten wird jeden Morgen abgelehnt).
+    treffer = re.search(r"uint64\s+(\d+)", fertig.stdout)
     if fertig.returncode != 0 or not treffer:
         return None
     return int(treffer.group(1)) / 1000
