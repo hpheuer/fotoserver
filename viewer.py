@@ -2807,7 +2807,8 @@ def _sitzungen():
             fertig = subprocess.run(
                 ["loginctl", "show-session", teile[0], "-p", "Name",
                  "-p", "User", "-p", "Class", "-p", "Type", "-p", "Remote",
-                 "-p", "RemoteHost", "-p", "State", "-p", "TTY"],
+                 "-p", "RemoteHost", "-p", "State", "-p", "TTY",
+                 "-p", "Scope"],
                 capture_output=True, text=True, timeout=10)
         except (OSError, subprocess.SubprocessError):
             continue
@@ -2845,14 +2846,51 @@ def _leerlauf_grafisch(uid):
     return int(treffer.group(1)) / 1000
 
 
-def _leerlauf_terminal(tty):
-    """Sekunden seit der letzten Eingabe am Terminal (wie `w`)."""
-    if not tty:
-        return None
+def _terminals_der_sitzung(uid, scope):
+    """Terminals (z. B. "pts/1"), die Prozesse der Sitzung offen haben.
+
+    Bei SSH laesst logind das Feld TTY leer - das Terminal entsteht erst,
+    nachdem die Sitzung angemeldet ist.  Ohne diesen Umweg zaehlte eine
+    SSH-Sitzung nie als Arbeit.  Gesucht wird ueber die Prozesse im
+    Sitzungs-Scope und deren Steuerterminal (Feld 7 in /proc/<pid>/stat).
+    """
+    if not (uid and scope):
+        return []
+    pfad = f"/sys/fs/cgroup/user.slice/user-{uid}.slice/{scope}/cgroup.procs"
     try:
-        return max(0.0, time.time() - os.stat(f"/dev/{tty}").st_atime)
+        with open(pfad) as f:
+            pids = f.read().split()
     except OSError:
-        return None
+        return []
+    gefunden = set()
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                # comm steht in Klammern und darf Leerzeichen enthalten
+                felder = f.read().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        tty_nr = int(felder[4])
+        haupt = (tty_nr >> 8) & 0xfff
+        neben = (tty_nr & 0xff) | ((tty_nr >> 12) & 0xfff00)
+        if 136 <= haupt <= 143:                 # Unix98-Pseudoterminals
+            gefunden.add(f"pts/{(haupt - 136) * 256 + neben}")
+    return sorted(gefunden)
+
+
+def _leerlauf_terminal(tty, uid="", scope=""):
+    """Sekunden seit der letzten Eingabe am Terminal (wie `w`).
+
+    Ohne TTY (SSH) zaehlt das zuletzt benutzte Terminal der Sitzung.
+    """
+    ttys = [tty] if tty else _terminals_der_sitzung(uid, scope)
+    ruhe = []
+    for t in ttys:
+        try:
+            ruhe.append(max(0.0, time.time() - os.stat(f"/dev/{t}").st_atime))
+        except OSError:
+            pass
+    return min(ruhe) if ruhe else None
 
 
 def jemand_arbeitet():
@@ -2869,7 +2907,8 @@ def jemand_arbeitet():
         if s.get("Type") in ("wayland", "x11"):
             ruhe, wo = _leerlauf_grafisch(s.get("User", "")), "am Desktop"
         else:
-            ruhe = _leerlauf_terminal(s.get("TTY"))
+            ruhe = _leerlauf_terminal(s.get("TTY"), s.get("User", ""),
+                                      s.get("Scope", ""))
             wo = (f"per SSH von {s['RemoteHost']}" if s.get("RemoteHost")
                   else f"an {s.get('TTY') or 'einem Terminal'}")
         if ruhe is None:
